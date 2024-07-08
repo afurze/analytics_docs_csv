@@ -95,7 +95,8 @@ def parse_topics(topics):
         'Office 365 Audit Logs',
         'Box Audit Logs',
         'DropBox Audit Logs',
-        'PAN Global Protect/3rd Party VPN'
+        'PAN Global Protect/3rd Party VPN',
+        'Health Monitoring Data'
     ]]
     for t in topics:
         soup = BeautifulSoup(t['topic']['text'], 'html.parser')
@@ -141,6 +142,7 @@ def parse_topics(topics):
         o365_audit = ''
         pan_gp_vpn = ''
         pan_platform = ''
+        health_mon = ''
 
         if 'XDR Agent' in required_data and 'XTH' not in required_data:
             xdr_agent = 'X'
@@ -176,6 +178,8 @@ def parse_topics(topics):
             pan_gp_vpn = 'X'
         if 'Office 365 Audit' in required_data:
             o365_audit = 'X'
+        if 'Health Monitoring Data' in required_data:
+            health_mon = 'X'
         
         csv_data.append([
             detector,
@@ -203,7 +207,8 @@ def parse_topics(topics):
             o365_audit,
             box,
             dropbox,
-            pan_gp_vpn
+            pan_gp_vpn,
+            health_mon
         ])
     
     return csv_data
