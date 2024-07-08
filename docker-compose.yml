@@ -1,0 +1,13 @@
+version: '3.4'
+
+services:
+  analyticsdocs:
+    image: analyticsdocs
+    build:
+      context: .
+      dockerfile: ./Dockerfile
+    volumes:
+      - /Users/afurze/Projects/analytics_docs/:/output
+
+volumes:
+  output:
