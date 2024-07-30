@@ -9,3 +9,8 @@ services:
     command: ["sh", "-c", "pip install debugpy -t /tmp && python /tmp/debugpy --wait-for-client --listen 0.0.0.0:5678 get_analytics_csv.py "]
     ports:
       - 5678:5678
+    volumes:
+      - /Users/afurze/Projects/analytics_docs/:/output
+
+volumes:
+  output:

@@ -11,7 +11,7 @@ def get_page_ids():
     url = BASE_URL + "/pretty-url/reader"
 
     data = {
-        'prettyUrl': "Cortex-XDR/Cortex-XDR-Analytics-Alert-Reference-by-data-source/Cortex-XDR-Analytics-Alert-Reference",
+        'prettyUrl': "Cortex-XDR/Cortex-XDR-Analytics-Alert-Reference-by-Alert-name/Cortex-XDR-Analytics-Alert-Reference",
         'forcedTocId': 'null'
     }
 
@@ -31,21 +31,22 @@ def parse_toc(topics):
     detector_ids = []
 
     target_reached = False
-    for x in topics['toc']:
-        title = x['topic']['title']
-        if title == 'Required Data Sources':
-            target_reached = True
-        if target_reached:
-            for c in x['children']:
-                # detector_ids += [c, c['topic']['tocId'], c['topic']['link']['contentId'], c['topic']['title'], c['topic']['ratingGroupId'], c['topic']['relativeTopicPivot']]
-                detector_ids.append({
-                    'detector': c,
-                    'tocId': c['topic']['tocId'],
-                    'contentId': c['topic']['link']['contentId'],
-                    'title': c['topic']['title'],
-                    'ratingGroupId': c['topic']['ratingGroupId'],
-                    'relativeTopicPivot': c['topic']['relativeTopicPivot']
-                })
+    for x in topics['toc'][1:]:
+        # title = x['topic']['title']
+        # if title == 'Required Data Sources':
+        #     target_reached = True
+        # if target_reached:
+        #     for c in x['children']:
+        #         # detector_ids += [c, c['topic']['tocId'], c['topic']['link']['contentId'], c['topic']['title'], c['topic']['ratingGroupId'], c['topic']['relativeTopicPivot']]
+        detector_ids.append({
+            'detector': x,
+            'tocId': x['topic']['tocId'],
+            'contentId': x['topic']['link']['contentId'],
+            'title': x['topic']['title'],
+            'ratingGroupId': x['topic']['ratingGroupId'],
+            'relativeTopicPivot': x['topic']['relativeTopicPivot']
+        })
+
 
     return detector_ids
 
