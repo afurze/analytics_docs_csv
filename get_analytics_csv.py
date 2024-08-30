@@ -30,14 +30,7 @@ def get_topics(doc_ids):
 def parse_toc(topics):
     detector_ids = []
 
-    target_reached = False
     for x in topics['toc'][1:]:
-        # title = x['topic']['title']
-        # if title == 'Required Data Sources':
-        #     target_reached = True
-        # if target_reached:
-        #     for c in x['children']:
-        #         # detector_ids += [c, c['topic']['tocId'], c['topic']['link']['contentId'], c['topic']['title'], c['topic']['ratingGroupId'], c['topic']['relativeTopicPivot']]
         detector_ids.append({
             'detector': x,
             'tocId': x['topic']['tocId'],
