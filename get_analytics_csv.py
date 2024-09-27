@@ -210,37 +210,37 @@ def parse_topics(topics):
         if 'Variations' in soup.text:
             variants = variations(soup)
 
-        for v in variants:
-            csv_data.append([
-                v['detector'],
-                detector, # variation of the current top level detector
-                v['severity'],
-                activation_period,
-                training_period,
-                test_period,
-                dedup_period,
-                detection_modules,
-                v['tactic'],
-                v['technique'],
-                xdr_agent,
-                xdr_agent_xth,
-                wec,
-                pan_platform,
-                azure_audit,
-                gcp_audit,
-                azure_ad,
-                azure_ad_audit,
-                aws_audit,
-                okta,
-                ping,
-                onelogin,
-                google_workspace_audit,
-                o365_audit,
-                box,
-                dropbox,
-                pan_gp_vpn,
-                health_mon
-            ])
+            for v in variants:
+                csv_data.append([
+                    v['detector'],
+                    detector, # variation of the current top level detector
+                    v['severity'],
+                    activation_period,
+                    training_period,
+                    test_period,
+                    dedup_period,
+                    detection_modules,
+                    v['tactic'],
+                    v['technique'],
+                    xdr_agent,
+                    xdr_agent_xth,
+                    wec,
+                    pan_platform,
+                    azure_audit,
+                    gcp_audit,
+                    azure_ad,
+                    azure_ad_audit,
+                    aws_audit,
+                    okta,
+                    ping,
+                    onelogin,
+                    google_workspace_audit,
+                    o365_audit,
+                    box,
+                    dropbox,
+                    pan_gp_vpn,
+                    health_mon
+                ])
             
     
     return csv_data
