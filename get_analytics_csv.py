@@ -63,40 +63,6 @@ def get_reader_topic_request(doc_ids, detector_ids):
     return resp.json()['topics']
 
 def parse_topics(topics):
-    # csv_data = [[
-    #     'Name',
-    #     'Variant of',
-    #     'Severity',
-    #     'Activation Period',
-    #     'Training Period',
-    #     'Test Period',
-    #     'Deduplication Period',
-    #     'Detection Modules',
-    #     'Detector Tags',
-    #     'ATT&CK Tactic',
-    #     'ATT&CK Technique',
-    #     'XDR Agent',
-    #     'XDR Agent (with XTH)',
-    #     'Windows Event Collector',
-    #     'PAN Platform Logs',
-    #     'Azure Audit Logs',
-    #     'Azure Flow Logs',
-    #     'GCP Audit Logs',
-    #     'Azure AD',
-    #     'Azure AD Audit Logs',
-    #     'AWS Audit Logs',
-    #     'AWS Flow Logs',
-    #     'AWS OCSF Flow Logs',
-    #     'Okta',
-    #     'Ping',
-    #     'OneLogin',
-    #     'Google Workspace Audit Logs',
-    #     'Office 365 Audit Logs',
-    #     'Box Audit Logs',
-    #     'DropBox Audit Logs',
-    #     'PAN Global Protect/3rd Party VPN',
-    #     'Health Monitoring Data'
-    # ]]
     csv_data = [[
         'Name',
         'Variant of',
@@ -201,29 +167,6 @@ def parse_topics(topics):
             'XDR Agent': '',
             'XDR Agent with eXtended Threat Hunting (XTH)': ''
         }
-        
-        # xdr_agent = ''
-        # xdr_agent_xth = ''
-        # wec = ''
-        # pan_platform = ''
-        # azure_audit = ''
-        # azure_flow = ''
-        # azure_ad = ''
-        # azure_ad_audit = ''
-        # aws_audit = ''
-        # aws_flow = ''
-        # aws_ocsf_flow = ''
-        # gcp_audit = ''
-        # okta = ''
-        # ping = ''
-        # onelogin = ''
-        # google_workspace_audit = ''
-        # box = ''
-        # dropbox = ''
-        # o365_audit = ''
-        # pan_gp_vpn = ''
-        # pan_platform = ''
-        # health_mon = ''
 
         for k, v in sources.items():
             if k in required_data:
@@ -233,42 +176,6 @@ def parse_topics(topics):
             sources['XDR Agent'] = 'X'
         if 'eXtended Threat Hunting (XTH)' in required_data:
             sources['XDR Agent with eXtended Threat Hunting (XTH)'] = 'X'
-        # if 'Windows Event Collector' in required_data:
-        #     wec = 'X'
-        # if 'Palo Alto Networks Platform' in required_data:
-        #     pan_platform = 'X'
-        # if 'Azure Audit Log' in required_data:
-        #     azure_audit = 'X'
-        # if 'AzureAD' in required_data:
-        #     azure_ad = 'X'
-        # if 'AzureAD Audit Log' in required_data:
-        #     azure_ad_audit = 'X'
-        # if 'AWS Audit Log' in required_data:
-        #     aws_audit = 'X'
-        # if 'AWS Flow Log' in required_data:
-        #     aws_flow = 'X'
-        # if 'AWS OCSF Flow Logs':
-        #     aws_ocsf_flow = 'X'
-        # if 'Gcp' in required_data:
-        #     gcp_audit = 'X'
-        # if 'Okta' in required_data:
-        #     okta = 'X'
-        # if 'Ping' in required_data:
-        #     ping = 'X'
-        # if 'OneLogin' in required_data:
-        #     onelogin = 'X'
-        # if 'Google Workspace Audit Logs' in required_data:
-        #     google_workspace_audit = 'X'
-        # if 'Box Audit' in required_data:
-        #     box = 'X'
-        # if 'DropBox' in required_data:
-        #     dropbox = 'X'
-        # if 'Global Protect' in required_data:
-        #     pan_gp_vpn = 'X'
-        # if 'Office 365 Audit' in required_data:
-        #     o365_audit = 'X'
-        # if 'Health Monitoring Data' in required_data:
-        #     health_mon = 'X'
         
         row = [
             detector,
@@ -288,38 +195,6 @@ def parse_topics(topics):
             row.append(v)
 
         csv_data.append(row)
-
-        # csv_data.append([
-        #     detector,
-        #     '', # top level is not a variation
-        #     severity,
-        #     activation_period,
-        #     training_period,
-        #     test_period,
-        #     dedup_period,
-        #     detection_modules,
-        #     tags,
-        #     tactic,
-        #     technique,
-        #     xdr_agent,
-        #     xdr_agent_xth,
-        #     wec,
-        #     pan_platform,
-        #     azure_audit,
-        #     gcp_audit,
-        #     azure_ad,
-        #     azure_ad_audit,
-        #     aws_audit,
-        #     okta,
-        #     ping,
-        #     onelogin,
-        #     google_workspace_audit,
-        #     o365_audit,
-        #     box,
-        #     dropbox,
-        #     pan_gp_vpn,
-        #     health_mon
-        # ])
 
         if 'Variations' in soup.text:
             variants = variations(soup)
@@ -341,38 +216,6 @@ def parse_topics(topics):
 
                 for k, v in sources.items():
                     row.append(v)
-
-                # csv_data.append([
-                #     v['detector'],
-                #     detector, # variation of the current top level detector
-                #     v['severity'],
-                #     activation_period,
-                #     training_period,
-                #     test_period,
-                #     dedup_period,
-                #     detection_modules,
-                #     tags,
-                #     v['tactic'],
-                #     v['technique'],
-                #     xdr_agent,
-                #     xdr_agent_xth,
-                #     wec,
-                #     pan_platform,
-                #     azure_audit,
-                #     gcp_audit,
-                #     azure_ad,
-                #     azure_ad_audit,
-                #     aws_audit,
-                #     okta,
-                #     ping,
-                #     onelogin,
-                #     google_workspace_audit,
-                #     o365_audit,
-                #     box,
-                #     dropbox,
-                #     pan_gp_vpn,
-                #     health_mon
-                # ])
 
                 csv_data.append(row)
             
