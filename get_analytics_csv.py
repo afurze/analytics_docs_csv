@@ -65,6 +65,7 @@ def get_reader_topic_request(doc_ids, detector_ids):
 def parse_topics(topics):
     csv_data = [[
         'Name',
+        'Variant of',
         'Severity',
         'Activation Period',
         'Training Period',
@@ -115,7 +116,7 @@ def parse_topics(topics):
             detection_modules = ''
 
         tactic = [x for x in table if x[0] == 'ATT&CK Tactic'][0][1]
-        technique = [x for x in table if x[0] == 'ATT&CK Technique'][0][1]
+        technique = [x for x in table if x[0] == 'ATT&CK Technique'][0][1]                
 
         # Place an 'x' in the right data source column
         xdr_agent = ''
@@ -177,6 +178,7 @@ def parse_topics(topics):
         
         csv_data.append([
             detector,
+            '', # top level is not a variation
             severity,
             activation_period,
             training_period,
@@ -204,8 +206,72 @@ def parse_topics(topics):
             pan_gp_vpn,
             health_mon
         ])
+
+        if 'Variations' in soup.text:
+            variants = variations(soup)
+
+        for v in variants:
+            csv_data.append([
+                v['detector'],
+                detector, # variation of the current top level detector
+                v['severity'],
+                activation_period,
+                training_period,
+                test_period,
+                dedup_period,
+                detection_modules,
+                v['tactic'],
+                v['technique'],
+                xdr_agent,
+                xdr_agent_xth,
+                wec,
+                pan_platform,
+                azure_audit,
+                gcp_audit,
+                azure_ad,
+                azure_ad_audit,
+                aws_audit,
+                okta,
+                ping,
+                onelogin,
+                google_workspace_audit,
+                o365_audit,
+                box,
+                dropbox,
+                pan_gp_vpn,
+                health_mon
+            ])
+            
     
     return csv_data
+
+def variations(soup):
+    variations = soup.find(lambda tag: tag.name == 'h2' and 'Variations' in tag.text)
+    variations = variations.find_all_next('a', class_='ft-expanding-block-link')
+
+    res = []
+    for var in variations:
+        table = []
+        rows = var.find_next('table').tbody.find_all('tr')
+        for r in rows:
+            cols = r.find_all('td')
+            cols = [ele.text.strip() for ele in cols]
+            table.append([ele for ele in cols if ele])
+    
+        detector = var.text
+        severity = [x for x in table if x[0] == 'Severity'][0][1]
+        tactic = [x for x in table if x[0] == 'ATT&CK Tactic'][0][1]
+        technique = [x for x in table if x[0] == 'ATT&CK Technique'][0][1]
+
+        res.append({
+            'detector': detector,
+            'severity': severity,
+            'tactic': tactic,
+            'technique': technique
+        })
+
+
+    return res
 
 def write_csv(csv_data):
     with open('/output/analytics_alerts.csv', 'w') as csvfile:
