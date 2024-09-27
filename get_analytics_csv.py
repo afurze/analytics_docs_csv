@@ -72,6 +72,7 @@ def parse_topics(topics):
         'Test Period',
         'Deduplication Period',
         'Detection Modules',
+        'Detector Tags',
         'ATT&CK Tactic',
         'ATT&CK Technique',
         'XDR Agent',
@@ -110,6 +111,10 @@ def parse_topics(topics):
         test_period = [x for x in table if x[0] == 'Test Period'][0][1]
         dedup_period = [x for x in table if x[0] == 'Deduplication Period'][0][1]
         required_data = [x for x in table if x[0] == 'Required Data'][0][1]
+        try:
+            tags = [x for x in table if x[0] == 'Detector Tags'][0][1]
+        except:
+            tags = ''
         try:
             detection_modules = [x for x in table if x[0] == 'Detection Modules'][0][1]
         except:
@@ -185,6 +190,7 @@ def parse_topics(topics):
             test_period,
             dedup_period,
             detection_modules,
+            tags,
             tactic,
             technique,
             xdr_agent,
@@ -220,6 +226,7 @@ def parse_topics(topics):
                     test_period,
                     dedup_period,
                     detection_modules,
+                    tags,
                     v['tactic'],
                     v['technique'],
                     xdr_agent,
