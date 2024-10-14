@@ -11,7 +11,7 @@ def get_page_ids():
     url = BASE_URL + "/pretty-url/reader"
 
     data = {
-        'prettyUrl': "Cortex-XDR/Cortex-XDR-Analytics-Alert-Reference-by-Alert-name/Cortex-XDR-Analytics-Alert-Reference",
+        'prettyUrl': "Cortex-XSIAM/Cortex-XSIAM-Analytics-Alert-Reference-by-Alert-name",
         'forcedTocId': 'null'
     }
 
