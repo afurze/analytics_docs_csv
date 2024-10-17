@@ -174,6 +174,9 @@ def parse_topics(topics):
 
         if 'XDR Agent' in required_data and 'XTH' not in required_data:
             sources['XDR Agent'] = 'X'
+            sources['XDR Agent with eXtended Threat Hunting (XTH)'] = 'X'
+        else:
+            sources['XDR Agent'] = ''
         if 'eXtended Threat Hunting (XTH)' in required_data:
             sources['XDR Agent with eXtended Threat Hunting (XTH)'] = 'X'
         
