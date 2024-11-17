@@ -1,16 +1,28 @@
 from bs4 import BeautifulSoup
-import csv
 import json
 import pandas as pd
 import requests
 import sys
 
 
+# Cortex Doc portal base URL
 BASE_URL = "https://docs-cortex.paloaltonetworks.com/internal/api/webapp"
 
+
 def get_page_ids():
+    """Handles HTML request to get the page Ids which we can then use to get the topic Ids
+    
+    Args:
+        None
+
+    Returns:
+        The response text as JSON
+    """
+
     url = BASE_URL + "/pretty-url/reader"
 
+    # There is an XDR and an XSIAM docs page, we'll use the XSIAM version (as far as I know
+    # they're identitical, but this could change)
     data = {
         'prettyUrl': "Cortex-XSIAM/Cortex-XSIAM-Analytics-Alert-Reference-by-Alert-name",
         'forcedTocId': 'null'
@@ -23,12 +35,29 @@ def get_page_ids():
     return resp.json()
 
 def get_topics(doc_ids):
+    """Handles HTML request to get the topic Ids, which we can then use to
+    request the actual contents
+    
+    Args:
+        doc_ids: A JSON object containing all the page Ids we need topics for
+
+    Returns:
+        The response text as JSON
+    """
     url = BASE_URL + "/maps/{0}/toc?".format(doc_ids['documentId'])
 
     resp = requests.get(url=url)
     return resp.json()
 
 def parse_toc(topics):
+    """Parse out the topic list so that we can make our requests to get content
+
+    Args:
+        topics: A JSON object containing the topic data
+
+    Returns:
+        An array of JSON objects containing the parsed topic data
+    """
     detector_ids = []
 
     for x in topics['toc'][1:]:
@@ -45,8 +74,18 @@ def parse_toc(topics):
     return detector_ids
 
 def get_reader_topic_request(doc_ids, detector_ids):
+    """Handle sending HTML requests to get the actual page body for each detector
+    
+    Args:
+        doc_ids: the page Ids we are requesting from
+        detector_ids: the section Ids for each detector we are requesting
+    
+    Returns:
+        The JSON object topics key which contains the raw page data
+    """
     topics = []
 
+    # Build the request data for each detector
     for x in detector_ids:
         topics.append({
             'sourceType': 'OFFICIAL',
@@ -64,6 +103,17 @@ def get_reader_topic_request(doc_ids, detector_ids):
     return resp.json()['topics']
 
 def parse_topics(topics):
+    """This function is the meat and potatoes of this application.  We will use beautifulsoup
+    to parse out the HTML and extract all the relevant data into a pandas DataFrame
+    
+    Args:
+        topics: a JSON object containing the raw data about each detector
+        
+    Returns:
+        A DataFrame containing all of the required data for each detector
+    """
+
+    # Build column headers list
     headers = [
         'Name',
         'Variant of',
@@ -111,9 +161,11 @@ def parse_topics(topics):
 
     df = pd.DataFrame(data, columns=headers)
     
+    # Parse eatch topic
     for t in topics:
         soup = BeautifulSoup(t['topic']['text'], 'html.parser')
         
+        # Data in the web page is organized with tables, need to extract
         table = []
         rows = soup.table.tbody.find_all('tr')
         for r in rows:
@@ -121,6 +173,7 @@ def parse_topics(topics):
             cols = [ele.text.strip() for ele in cols]
             table.append([ele for ele in cols if ele])
         
+        # Set some of the basic data about the detector
         detector = t['topic']['title']
         severity = [x for x in table if x[0] == 'Severity'][0][1]
         activation_period = [x for x in table if x[0] == 'Activation Period'][0][1]
@@ -137,11 +190,14 @@ def parse_topics(topics):
         except:
             detection_modules = ''
 
+        # ATT&CK Tactic and Technique come from the table smashed together, we need to extract
+        # them as lists so we can do some pivots later
         tactic = [x for x in table if x[0] == 'ATT&CK Tactic'][0][1].split(')')
         tactic = [t.strip() + ")" for t in tactic if t]
         technique = [x for x in table if x[0] == 'ATT&CK Technique'][0][1].split(')')
         technique = [t.strip() + ")" for t in technique if t]     
 
+        # Start creating the dict of data for the detector
         row = {
             'Name': [detector],
             'Variant of': [''], # top level is not a variation
@@ -201,10 +257,12 @@ def parse_topics(topics):
         if 'eXtended Threat Hunting (XTH)' in required_data:
             sources['XDR Agent with eXtended Threat Hunting (XTH)'] = ['X']
         
+        # Combine the 'old' dataframe and the 'new' dataframe
         row.update(sources)
         new_df = pd.DataFrame(row)
         df = pd.concat([df, new_df], ignore_index=True)
 
+        # Check if this detector has variations, and parse them
         if 'Variations' in soup.text:
             variants = variations(soup)
 
@@ -224,6 +282,7 @@ def parse_topics(topics):
                     'ATT&CK Technique': [v['technique']]
                 }       
 
+                # Combine the 'old' dataframe and the 'new' dataframe
                 row.update(sources)
                 new_df = pd.DataFrame(row)
                 df = pd.concat([df, new_df], ignore_index=True)
@@ -231,9 +290,22 @@ def parse_topics(topics):
     return df
 
 def variations(soup):
+    """Helper function to parse out variations table.  These are embedded as additional HTML
+    tables in the parent 'topic' so we have to do some nasty looking finding
+    
+    Args:
+        soup: the beautifulsoup object with the parent detector data, including the
+            variations we need to extract
+    
+    Return:
+        A dict with the data for each variation
+    """
+    # Do the aforementioned 'nasty looking finding'
     variations = soup.find(lambda tag: tag.name == 'h2' and 'Variations' in tag.text)
     variations = variations.find_all_next('a', class_='ft-expanding-block-link')
 
+    # For each identified variation, extract out some basic data, we don't have to handle
+    # the data source as this is the same as the parent detector
     res = []
     for var in variations:
         table = []
@@ -245,6 +317,8 @@ def variations(soup):
     
         detector = var.text
         severity = [x for x in table if x[0] == 'Severity'][0][1]
+
+        # Again, we have to create a list from the mashed together MITRE
         tactic = [x for x in table if x[0] == 'ATT&CK Tactic'][0][1].split(')')
         tactic = [t.strip() + ")" for t in tactic if t]
         technique = [x for x in table if x[0] == 'ATT&CK Technique'][0][1].split(')')
@@ -261,6 +335,11 @@ def variations(soup):
     return res
 
 def main():
+    """This application is designed to extract all of the Cortex XSIAM Analytics detectors
+    from the product documentation web app.  The web app makes it impossible to extract this data
+    from it directly to a format that allows simplified filtering and searching, so this
+    application was created as an aid for PANW employees and customers alike.
+    """
     doc_ids = get_page_ids()
     topics = get_topics(doc_ids)
     detector_ids = parse_toc(topics)
