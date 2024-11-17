@@ -137,8 +137,10 @@ def parse_topics(topics):
         except:
             detection_modules = ''
 
-        tactic = [x for x in table if x[0] == 'ATT&CK Tactic'][0][1]
-        technique = [x for x in table if x[0] == 'ATT&CK Technique'][0][1]     
+        tactic = [x for x in table if x[0] == 'ATT&CK Tactic'][0][1].split(')')
+        tactic = [t.strip() + ")" for t in tactic if t]
+        technique = [x for x in table if x[0] == 'ATT&CK Technique'][0][1].split(')')
+        technique = [t.strip() + ")" for t in technique if t]     
 
         row = {
             'Name': [detector],
@@ -243,8 +245,10 @@ def variations(soup):
     
         detector = var.text
         severity = [x for x in table if x[0] == 'Severity'][0][1]
-        tactic = [x for x in table if x[0] == 'ATT&CK Tactic'][0][1]
-        technique = [x for x in table if x[0] == 'ATT&CK Technique'][0][1]
+        tactic = [x for x in table if x[0] == 'ATT&CK Tactic'][0][1].split(')')
+        tactic = [t.strip() + ")" for t in tactic if t]
+        technique = [x for x in table if x[0] == 'ATT&CK Technique'][0][1].split(')')
+        technique = [t.strip() + ")" for t in technique if t] 
 
         res.append({
             'detector': detector,
@@ -256,18 +260,13 @@ def variations(soup):
 
     return res
 
-def write_csv(csv_data):
-    with open('/output/analytics_alerts.csv', 'w') as csvfile:
-        writer = csv.writer(csvfile)
-        writer.writerows(csv_data)
-
 def main():
     doc_ids = get_page_ids()
     topics = get_topics(doc_ids)
     detector_ids = parse_toc(topics)
     topics = get_reader_topic_request(doc_ids, detector_ids)
     df = parse_topics(topics)
-    write_csv(df.to_csv())
+    df.to_csv('/output/analytics_alerts.csv', index=False)
     
 if __name__ == '__main__':
     main()
