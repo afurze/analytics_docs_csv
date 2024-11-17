@@ -1,6 +1,7 @@
 from bs4 import BeautifulSoup
 import csv
 import json
+import pandas as pd
 import requests
 import sys
 
@@ -63,7 +64,7 @@ def get_reader_topic_request(doc_ids, detector_ids):
     return resp.json()['topics']
 
 def parse_topics(topics):
-    csv_data = [[
+    headers = [
         'Name',
         'Variant of',
         'Severity',
@@ -104,7 +105,11 @@ def parse_topics(topics):
         'Windows Event Collector',
         'XDR Agent',
         'XDR Agent with eXtended Threat Hunting (XTH)'
-    ]]
+    ]
+
+    data = {}
+
+    df = pd.DataFrame(data, columns=headers)
     
     for t in topics:
         soup = BeautifulSoup(t['topic']['text'], 'html.parser')
@@ -133,7 +138,21 @@ def parse_topics(topics):
             detection_modules = ''
 
         tactic = [x for x in table if x[0] == 'ATT&CK Tactic'][0][1]
-        technique = [x for x in table if x[0] == 'ATT&CK Technique'][0][1]                
+        technique = [x for x in table if x[0] == 'ATT&CK Technique'][0][1]     
+
+        row = {
+            'Name': [detector],
+            'Variant of': [''], # top level is not a variation
+            'Severity': [severity],
+            'Activation Period': [activation_period],
+            'Training Period': [training_period],
+            'Test Period': [test_period],
+            'Deduplication Period': [dedup_period],
+            'Detection Modules': [detection_modules],
+            'Detector Tags': [tags],
+            'ATT&CK Tactic': [tactic],
+            'ATT&CK Technique': [technique]
+        }           
 
         # Place an 'x' in the right data source column
         sources = {
@@ -170,60 +189,44 @@ def parse_topics(topics):
 
         for k, v in sources.items():
             if k in required_data:
-                sources[k] = 'X'
+                sources[k] = ['X']
 
         if 'XDR Agent' in required_data and 'XTH' not in required_data:
-            sources['XDR Agent'] = 'X'
-            sources['XDR Agent with eXtended Threat Hunting (XTH)'] = 'X'
+            sources['XDR Agent'] = ['X']
+            sources['XDR Agent with eXtended Threat Hunting (XTH)'] = ['X']
         else:
-            sources['XDR Agent'] = ''
+            sources['XDR Agent'] = ['']
         if 'eXtended Threat Hunting (XTH)' in required_data:
-            sources['XDR Agent with eXtended Threat Hunting (XTH)'] = 'X'
+            sources['XDR Agent with eXtended Threat Hunting (XTH)'] = ['X']
         
-        row = [
-            detector,
-            '', # top level is not a variation
-            severity,
-            activation_period,
-            training_period,
-            test_period,
-            dedup_period,
-            detection_modules,
-            tags,
-            tactic,
-            technique
-        ]
-
-        for k,v in sources.items():
-            row.append(v)
-
-        csv_data.append(row)
+        row.update(sources)
+        new_df = pd.DataFrame(row)
+        df = pd.concat([df, new_df], ignore_index=True)
 
         if 'Variations' in soup.text:
             variants = variations(soup)
 
             for v in variants:
-                row = [
-                    v['detector'],
-                    detector,
-                    v['severity'],
-                    activation_period,
-                    training_period,
-                    test_period,
-                    dedup_period,
-                    detection_modules,
-                    tags,
-                    v['tactic'],
-                    v['technique']
-                ]
 
-                for k, v in sources.items():
-                    row.append(v)
+                row = {
+                    'Name': [v['detector']],
+                    'Variant of': [detector], # top level is not a variation
+                    'Severity': [v['severity']],
+                    'Activation Period': [activation_period],
+                    'Training Period': [training_period],
+                    'Test Period': [test_period],
+                    'Deduplication Period': [dedup_period],
+                    'Detection Modules': [detection_modules],
+                    'Detector Tags': [tags],
+                    'ATT&CK Tactic': [v['tactic']],
+                    'ATT&CK Technique': [v['technique']]
+                }       
 
-                csv_data.append(row)
+                row.update(sources)
+                new_df = pd.DataFrame(row)
+                df = pd.concat([df, new_df], ignore_index=True)
             
-    
-    return csv_data
+    return df
 
 def variations(soup):
     variations = soup.find(lambda tag: tag.name == 'h2' and 'Variations' in tag.text)
@@ -263,8 +266,8 @@ def main():
     topics = get_topics(doc_ids)
     detector_ids = parse_toc(topics)
     topics = get_reader_topic_request(doc_ids, detector_ids)
-    csv_data = parse_topics(topics)
-    write_csv(csv_data)
+    df = parse_topics(topics)
+    write_csv(df.to_csv())
     
 if __name__ == '__main__':
     main()
