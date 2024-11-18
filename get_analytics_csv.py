@@ -337,6 +337,7 @@ def generate_heatmap(df):
     # Initialize layer
     layer = Layer()
     layer.from_file('/output/layer_template.json')
+    # layer.from_file('layer_template.json')
 
     # Enable Techniques
     all_technique_ids = set()
@@ -351,6 +352,7 @@ def generate_heatmap(df):
     for t in layer.layer.techniques:
         if t.techniqueID in all_technique_ids:
             t.enabled = True
+            t.color = "#31a354"
 
     return layer
             
