@@ -154,7 +154,7 @@ def parse_topics(topics):
         dedup_period = [x for x in table if x[0] == 'Deduplication Period'][0][1]
         required_data = [x for x in table if x[0] == 'Required Data'][0][1]
         try:
-            tags = [x for x in table if x[0] == 'Detector Tags'][0][1]
+            tags = [x for x in table if x[0] == 'Detector Tags'][0][1].split(',')
         except:
             tags = ''
         try:
@@ -252,7 +252,7 @@ def parse_topics(topics):
                     'Test Period': [test_period],
                     'Deduplication Period': [dedup_period],
                     'Detection Modules': [detection_modules],
-                    'Detector Tags': tags,
+                    'Detector Tags': [tags],
                     'ATT&CK Tactic': [v['tactic']],
                     'ATT&CK Technique': [v['technique']],
                     'Sources': [data_sources]
@@ -310,34 +310,6 @@ def variations(soup):
 
     return res
 
-def explode_sources(df):
-    """This function is used to convert the 'Sources' column to multiple columns, placing
-    an 'X' in each column if that source was in the original 'Sources' list.  This is the format
-    for the CSV that is uploaded to be shared.
-    
-    Args:
-        df: the dataframe to explode.
-        
-    Returns:
-        A data table with the sources column exploded to multiple columns.
-    """
-    # Dynamically determine all unique sources from the 'Sources' column
-    all_sources = set()
-    for sources_list in df['Sources']:
-        all_sources.update(sources_list)
-
-    # Create new columns for each unique source
-    for source in all_sources:
-        df[source] = ''
-
-    # Iterate through rows and mark sources with 'x'
-    for index, row in df.iterrows():
-        for source in row['Sources']:
-            if source in all_sources:
-                df.loc[index, source] = 'x'
-
-    return df
-
 def main():
     """This application is designed to extract all of the Cortex XSIAM Analytics detectors
     from the product documentation web app.  The web app makes it impossible to extract this data
@@ -349,7 +321,6 @@ def main():
     detector_ids = parse_toc(topics)
     topics = get_reader_topic_request(doc_ids, detector_ids)
     df = parse_topics(topics)
-    df = explode_sources(df)
     df.to_csv('/output/analytics_alerts.csv', index=False)
     
 if __name__ == '__main__':
