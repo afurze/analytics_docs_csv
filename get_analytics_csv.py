@@ -310,6 +310,25 @@ def variations(soup):
 
     return res
 
+def summary_statistics(df):
+    """This function calculates the various summary statistics
+    
+    Args:
+        df: The dataframe to calculate on.
+    
+    Returns:
+        A dict of multiple dataframes containing each of the summaries, the key represents
+        the filename that will be used to export each df.
+    """
+    stats = {}
+    stats['count_by_sev.csv'] = df['Severity'].value_counts()
+    stats['count_by_source.csv'] = df['Sources'].explode().value_counts()
+    stats['count_by_tactic.csv'] = df['ATT&CK Tactic'].explode().value_counts()
+    stats['count_by_technique.csv'] = df['ATT&CK Technique'].explode().value_counts()
+    stats['count_by_tag.csv'] = df['Detector Tags'].explode().value_counts()
+
+    return stats
+
 def main():
     """This application is designed to extract all of the Cortex XSIAM Analytics detectors
     from the product documentation web app.  The web app makes it impossible to extract this data
@@ -321,6 +340,11 @@ def main():
     detector_ids = parse_toc(topics)
     topics = get_reader_topic_request(doc_ids, detector_ids)
     df = parse_topics(topics)
+    stats = summary_statistics(df)
+
+    # Export
+    for fname, statdf in stats.items():
+        statdf.to_csv('/output/' + fname, index=True)
     df.to_csv('/output/analytics_alerts.csv', index=False)
     
 if __name__ == '__main__':
