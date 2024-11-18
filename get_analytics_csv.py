@@ -126,35 +126,7 @@ def parse_topics(topics):
         'Detector Tags',
         'ATT&CK Tactic',
         'ATT&CK Technique',
-        'AWS Audit Log',
-        'AWS Flow Log',
-        'AWS OCSF Flow Logs',
-        'Azure Audit Log',
-        'Azure Flow Log',
-        'Azure SignIn Log',
-        'AzureAD',
-        'AzureAD Audit Log',
-        'Box Audit Log',
-        'DropBox',
-        'Duo',
-        'Gcp Audit Log',
-        'Gcp Flow Log',
-        'Google Workspace Audit Logs',
-        'Google Workspace Authentication',
-        'Health Monitoring Data',
-        'Office 365 Audit',
-        'Okta',
-        'Okta Audit Log',
-        'OneLogin',
-        'Palo Alto Networks Global Protect',
-        'Palo Alto Networks Platform Logs',
-        'Palo Alto Networks Url Logs',
-        'PingOne',
-        'Third-Party Firewalls',
-        'Third-Party VPNs',
-        'Windows Event Collector',
-        'XDR Agent',
-        'XDR Agent with eXtended Threat Hunting (XTH)'
+        'Sources'
     ]
 
     data = {}
@@ -198,6 +170,55 @@ def parse_topics(topics):
         technique = [t.strip() + ")" for t in technique if t]     
 
         # Start creating the dict of data for the detector
+        
+        # Place an 'x' in the right data source column
+        data_sources = []
+        sources = [
+            'AWS Audit Log',
+            'AWS Flow Log',
+            'AWS OCSF Flow Logs',
+            'Azure Audit Log',
+            'Azure Flow Log',
+            'Azure SignIn Log',
+            'AzureAD',
+            'AzureAD Audit Log',
+            'Box Audit Log',
+            'DropBox',
+            'Duo',
+            'Gcp Audit Log',
+            'Gcp Flow Log',
+            'Google Workspace Audit Logs',
+            'Google Workspace Authentication',
+            'Health Monitoring Data',
+            'Office 365 Audit',
+            'Okta',
+            'Okta Audit Log',
+            'OneLogin',
+            'Palo Alto Networks Global Protect',
+            'Palo Alto Networks Platform Logs',
+            'Palo Alto Networks Url Logs',
+            'PingOne',
+            'Third-Party Firewalls',
+            'Third-Party VPNs',
+            'Windows Event Collector',
+            'XDR Agent',
+            'XDR Agent with eXtended Threat Hunting (XTH)'
+        ]
+
+        for k in sources:
+            if 'XDR Agent' not in k and k in required_data:
+                data_sources.append(k)
+
+        if 'XDR Agent' in required_data:
+            data_sources.append('XDR Agent with eXtended Threat Hunting (XTH)')
+            if 'XTH' not in required_data:
+                data_sources.append('XDR Agent')
+
+        # if 'eXtended Threat Hunting (XTH)' in required_data:
+        #     data_sources.append('XDR Agent with eXtended Threat Hunting (XTH)')
+        
+        # Combine the 'old' dataframe and the 'new' dataframe
+        # row['Sources'] = data_sources
         row = {
             'Name': [detector],
             'Variant of': [''], # top level is not a variation
@@ -209,56 +230,10 @@ def parse_topics(topics):
             'Detection Modules': [detection_modules],
             'Detector Tags': [tags],
             'ATT&CK Tactic': [tactic],
-            'ATT&CK Technique': [technique]
+            'ATT&CK Technique': [technique],
+            'Sources': [data_sources]
         }           
 
-        # Place an 'x' in the right data source column
-        sources = {
-            'AWS Audit Log': '',
-            'AWS Flow Log': '',
-            'AWS OCSF Flow Logs': '',
-            'Azure Audit Log': '',
-            'Azure Flow Log': '',
-            'Azure SignIn Log': '',
-            'AzureAD': '',
-            'AzureAD Audit Log': '',
-            'Box Audit Log': '',
-            'DropBox': '',
-            'Duo': '',
-            'Gcp Audit Log': '',
-            'Gcp Flow Log': '',
-            'Google Workspace Audit Logs': '',
-            'Google Workspace Authentication': '',
-            'Health Monitoring Data': '',
-            'Office 365 Audit': '',
-            'Okta': '',
-            'Okta Audit Log': '',
-            'OneLogin': '',
-            'Palo Alto Networks Global Protect': '',
-            'Palo Alto Networks Platform Logs': '',
-            'Palo Alto Networks Url Logs': '',
-            'PingOne': '',
-            'Third-Party Firewalls': '',
-            'Third-Party VPNs': '',
-            'Windows Event Collector': '',
-            'XDR Agent': '',
-            'XDR Agent with eXtended Threat Hunting (XTH)': ''
-        }
-
-        for k, v in sources.items():
-            if k in required_data:
-                sources[k] = ['X']
-
-        if 'XDR Agent' in required_data and 'XTH' not in required_data:
-            sources['XDR Agent'] = ['X']
-            sources['XDR Agent with eXtended Threat Hunting (XTH)'] = ['X']
-        else:
-            sources['XDR Agent'] = ['']
-        if 'eXtended Threat Hunting (XTH)' in required_data:
-            sources['XDR Agent with eXtended Threat Hunting (XTH)'] = ['X']
-        
-        # Combine the 'old' dataframe and the 'new' dataframe
-        row.update(sources)
         new_df = pd.DataFrame(row)
         df = pd.concat([df, new_df], ignore_index=True)
 
@@ -277,13 +252,14 @@ def parse_topics(topics):
                     'Test Period': [test_period],
                     'Deduplication Period': [dedup_period],
                     'Detection Modules': [detection_modules],
-                    'Detector Tags': [tags],
+                    'Detector Tags': tags,
                     'ATT&CK Tactic': [v['tactic']],
-                    'ATT&CK Technique': [v['technique']]
+                    'ATT&CK Technique': [v['technique']],
+                    'Sources': [data_sources]
                 }       
 
                 # Combine the 'old' dataframe and the 'new' dataframe
-                row.update(sources)
+                # row.update(sources)
                 new_df = pd.DataFrame(row)
                 df = pd.concat([df, new_df], ignore_index=True)
             
@@ -334,6 +310,34 @@ def variations(soup):
 
     return res
 
+def explode_sources(df):
+    """This function is used to convert the 'Sources' column to multiple columns, placing
+    an 'X' in each column if that source was in the original 'Sources' list.  This is the format
+    for the CSV that is uploaded to be shared.
+    
+    Args:
+        df: the dataframe to explode.
+        
+    Returns:
+        A data table with the sources column exploded to multiple columns.
+    """
+    # Dynamically determine all unique sources from the 'Sources' column
+    all_sources = set()
+    for sources_list in df['Sources']:
+        all_sources.update(sources_list)
+
+    # Create new columns for each unique source
+    for source in all_sources:
+        df[source] = ''
+
+    # Iterate through rows and mark sources with 'x'
+    for index, row in df.iterrows():
+        for source in row['Sources']:
+            if source in all_sources:
+                df.loc[index, source] = 'x'
+
+    return df
+
 def main():
     """This application is designed to extract all of the Cortex XSIAM Analytics detectors
     from the product documentation web app.  The web app makes it impossible to extract this data
@@ -345,6 +349,7 @@ def main():
     detector_ids = parse_toc(topics)
     topics = get_reader_topic_request(doc_ids, detector_ids)
     df = parse_topics(topics)
+    df = explode_sources(df)
     df.to_csv('/output/analytics_alerts.csv', index=False)
     
 if __name__ == '__main__':
