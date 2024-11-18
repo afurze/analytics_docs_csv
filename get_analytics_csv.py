@@ -1,5 +1,6 @@
 from bs4 import BeautifulSoup
 import json
+from mitreattack.navlayers.core import Layer
 import pandas as pd
 import requests
 import sys
