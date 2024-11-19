@@ -158,7 +158,6 @@ def parse_topics(topics):
         required_data = [x for x in table if x[0] == 'Required Data'][0][1]
         try:
             tags = [x for x in table if x[0] == 'Detector Tags'][0][1].split(',')
-            tags = [x.strip() for x in tags]
         except:
             tags = ''
         try:
