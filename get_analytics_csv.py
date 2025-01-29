@@ -330,6 +330,7 @@ def summary_statistics(df):
     stats['count_by_tactic.csv'] = df['ATT&CK Tactic'].explode().value_counts()
     stats['count_by_technique.csv'] = df['ATT&CK Technique'].explode().value_counts()
     stats['count_by_tag.csv'] = df['Detector Tags'].explode().value_counts()
+    stats['count_by_module.csv'] = df['Detection Modules'].value_counts()
 
     return stats
 
