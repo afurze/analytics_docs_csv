@@ -196,7 +196,7 @@ def parse_topics(topics):
             'Google Workspace Authentication',
             'Health Monitoring Data',
             'Office 365 Audit',
-            'Office 365 Mail',
+            'Microsoft 365 Emails',
             'Okta',
             'Okta Audit Log',
             'OneLogin',
