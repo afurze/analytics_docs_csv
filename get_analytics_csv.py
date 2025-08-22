@@ -70,7 +70,7 @@ def parse_toc(topics):
             'contentId': x['topic']['link']['contentId'],
             'title': x['topic']['title'],
             'ratingGroupId': x['topic']['ratingGroupId'],
-            'relativeTopicPivot': x['topic']['relativeTopicPivot']
+            # 'relativeTopicPivot': x['topic']['relativeTopicPivot']
         })
 
 
@@ -105,21 +105,104 @@ def get_reader_topic_request(doc_ids, detector_ids):
 
     return resp.json()['topics']
 
-def parse_topics(topics):
-    """This function is the meat and potatoes of this application.  We will use beautifulsoup
-    to parse out the HTML and extract all the relevant data into a pandas DataFrame
-    
-    Args:
-        topics: a JSON object containing the raw data about each detector
-        
-    Returns:
-        A DataFrame containing all of the required data for each detector
+def parse_table_data(table_soup):
     """
+    Parses a single HTML table and returns a dictionary of its key-value pairs.
+    Handles nested lists by joining items with commas.
+    """
+    data = {}
+    rows = table_soup.find_all('tr')
+    for r in rows:
+        cols = r.find_all('td')
+        if len(cols) >= 2:
+            key = cols[0].get_text(strip=True)
+            
+            # --- Step 1: Extract the raw value without cleaning ---
+            first_ul = cols[1].find('ul')
+            if first_ul:
+                list_items = first_ul.find_all('li', recursive=False)
+                if list_items and list_items[0].find('ul'):
+                    nested_ul = list_items[0].find('ul')
+                    value = ", ".join([item.get_text(strip=True) for item in nested_ul.find_all('li')])
+                else:
+                    value = ", ".join([item.get_text(strip=True) for item in list_items])
+            else:
+                value = cols[1].get_text(strip=True)
+            
+            # --- Step 2: Conditionally clean the value 'Required Data' ---
+            if key == 'Required Data' and value:
+                # Split the comma-separated string, clean each part, then rejoin
+                cleaned_parts = [part.strip().removesuffix('OR') for part in value.split(',')]
+                value = ", ".join(cleaned_parts)
+                
+                # If 'XDR Agent' is present (and XTH isn't already), add the XTH version.
+                if 'XDR Agent' in value and 'eXtended Threat Hunting (XTH)' not in value:
+                    value += ", XDR Agent with eXtended Threat Hunting (XTH)"
+                
+            else:
+                value = cols[1].get_text(strip=True)
+            
+            if value:
+                data[key] = value
+    return data
 
-    # Build column headers list
-    headers = [
+def parse_topics(topics):
+    all_detectors_data = []
+    for t in topics:
+        soup = BeautifulSoup(t['topic']['text'], 'html.parser')
+    
+        # --- Part 1: Extract the Main Detector ---
+        main_detector_data = {}
+        # The main table is the first one in the HTML
+        main_table = soup.find('table')
+        if main_table:
+            main_detector_data = parse_table_data(main_table)
+            main_detector_data['Type'] = 'Detector'
+
+        # Get the name of the main detector to use as a parent identifier
+        # main_detector_name_tag = soup.find('a', class_='ft-expanding-block-link')
+        # main_detector_name = main_detector_name_tag.get_text(strip=True) if main_detector_name_tag else 'Main Detector'
+
+        # Add the name to the main detector's data
+        main_detector_data['Name'] = t['topic']['title']
+
+        # --- Part 2: Extract the Variations ---
+        variations_data = []
+
+        # Find all the variation sections by their class
+        variations_sections = soup.find_all('div', class_='ft-expanding-block-content')
+
+        for section in variations_sections:
+            # Find the title of this variation using its data-target-id
+            target_id = section.get('id')
+            link_tag = soup.find('a', {'data-target-id': target_id})
+            title = link_tag.get_text(strip=True) if link_tag else 'Untitled Variation'
+            
+            # Start with a copy of the parent's data as a base for the variation
+            complete_variation = main_detector_data.copy()
+
+            # Get the data specific to this variation
+            variation_specific_data = parse_table_data(section)
+
+            # Update the base with the variation's data, overwriting any shared keys
+            complete_variation.update(variation_specific_data)
+
+            # Set the correct metadata for the variation record
+            complete_variation['Type'] = 'Variation'
+            complete_variation['Name'] = title
+            complete_variation['Parent Detector'] = main_detector_data.get('Name')
+
+            variations_data.append(complete_variation)
+
+        all_data_list = [main_detector_data] + variations_data
+        all_detectors_data.extend(all_data_list)
+    
+    df = pd.DataFrame(all_detectors_data)
+    
+    # Define the desired order of columns
+    desired_order = [
         'Name',
-        'Variant of',
+        'Parent Detector',
         'Severity',
         'Activation Period',
         'Training Period',
@@ -129,192 +212,19 @@ def parse_topics(topics):
         'Detector Tags',
         'ATT&CK Tactic',
         'ATT&CK Technique',
-        'Sources'
+        'Required Data',
+        'Response playbooks'
     ]
-
-    data = {}
-
-    df = pd.DataFrame(data, columns=headers)
     
-    # Parse eatch topic
-    for t in topics:
-        soup = BeautifulSoup(t['topic']['text'], 'html.parser')
-        
-        # Data in the web page is organized with tables, need to extract
-        table = []
-        rows = soup.table.tbody.find_all('tr')
-        for r in rows:
-            cols = r.find_all('td')
-            cols = [ele.text.strip() for ele in cols]
-            table.append([ele for ele in cols if ele])
-        
-        # Set some of the basic data about the detector
-        detector = t['topic']['title']
-        severity = [x for x in table if x[0] == 'Severity'][0][1]
-        activation_period = [x for x in table if x[0] == 'Activation Period'][0][1]
-        training_period = [x for x in table if x[0] == 'Training Period'][0][1]
-        test_period = [x for x in table if x[0] == 'Test Period'][0][1]
-        dedup_period = [x for x in table if x[0] == 'Deduplication Period'][0][1]
-        required_data = [x for x in table if x[0] == 'Required Data'][0][1]
-        try:
-            tags = [x for x in table if x[0] == 'Detector Tags'][0][1].split(',')
-            tags = [x.strip() for x in tags]
-        except:
-            tags = ''
-        try:
-            detection_modules = [x for x in table if x[0] == 'Detection Modules'][0][1]
-        except:
-            detection_modules = ''
-
-        # ATT&CK Tactic and Technique come from the table smashed together, we need to extract
-        # them as lists so we can do some pivots later
-        tactic = [x for x in table if x[0] == 'ATT&CK Tactic'][0][1].split(')')
-        tactic = [t.strip() + ")" for t in tactic if t]
-        technique = [x for x in table if x[0] == 'ATT&CK Technique'][0][1].split(')')
-        technique = [t.strip() + ")" for t in technique if t]     
-
-        # Start creating the dict of data for the detector
-        
-        # Place an 'x' in the right data source column
-        data_sources = []
-        sources = [
-            'AWS Audit Log',
-            'AWS Flow Log',
-            'AWS OCSF Flow Logs',
-            'Azure Audit Log',
-            'Azure Flow Log',
-            'Azure SignIn Log',
-            'AzureAD',
-            'AzureAD Audit Log',
-            'Box Audit Log',
-            'DropBox',
-            'Duo',
-            'Gcp Audit Log',
-            'Gcp Flow Log',
-            'Gmail Email Log',
-            'Google Workspace Audit Logs',
-            'Google Workspace Authentication',
-            'Health Monitoring Data',
-            'Office 365 Audit',
-            'Microsoft 365 Emails',
-            'Okta',
-            'Okta Audit Log',
-            'OneLogin',
-            'Palo Alto Networks Global Protect',
-            'Palo Alto Networks Platform Logs',
-            'Palo Alto Networks Url Logs',
-            'PingOne',
-            'Third-Party Firewalls',
-            'Third-Party VPNs',
-            'Windows Event Collector',
-            'XDR Agent',
-            'XDR Agent with eXtended Threat Hunting (XTH)'
-        ]
-
-        for k in sources:
-            if 'XDR Agent' not in k and k in required_data:
-                data_sources.append(k)
-
-        if 'XDR Agent' in required_data:
-            data_sources.append('XDR Agent with eXtended Threat Hunting (XTH)')
-            if 'XTH' not in required_data:
-                data_sources.append('XDR Agent')
-
-        # if 'eXtended Threat Hunting (XTH)' in required_data:
-        #     data_sources.append('XDR Agent with eXtended Threat Hunting (XTH)')
-        
-        # Combine the 'old' dataframe and the 'new' dataframe
-        # row['Sources'] = data_sources
-        row = {
-            'Name': [detector],
-            'Variant of': [''], # top level is not a variation
-            'Severity': [severity],
-            'Activation Period': [activation_period],
-            'Training Period': [training_period],
-            'Test Period': [test_period],
-            'Deduplication Period': [dedup_period],
-            'Detection Modules': [detection_modules],
-            'Detector Tags': [tags],
-            'ATT&CK Tactic': [tactic],
-            'ATT&CK Technique': [technique],
-            'Sources': [data_sources]
-        }           
-
-        new_df = pd.DataFrame(row)
-        df = pd.concat([df, new_df], ignore_index=True)
-
-        # Check if this detector has variations, and parse them
-        if 'Variations' in soup.text:
-            variants = variations(soup)
-
-            for v in variants:
-
-                row = {
-                    'Name': [v['detector']],
-                    'Variant of': [detector], # top level is not a variation
-                    'Severity': [v['severity']],
-                    'Activation Period': [activation_period],
-                    'Training Period': [training_period],
-                    'Test Period': [test_period],
-                    'Deduplication Period': [dedup_period],
-                    'Detection Modules': [detection_modules],
-                    'Detector Tags': [tags],
-                    'ATT&CK Tactic': [v['tactic']],
-                    'ATT&CK Technique': [v['technique']],
-                    'Sources': [data_sources]
-                }       
-
-                # Combine the 'old' dataframe and the 'new' dataframe
-                # row.update(sources)
-                new_df = pd.DataFrame(row)
-                df = pd.concat([df, new_df], ignore_index=True)
-            
+    # Create a list of columns that exist in the DataFrame, following the desired order
+    existing_ordered_cols = [col for col in desired_order if col in df.columns]
+    
+    # Combine the lists to create the final column order and re-index the DataFrame
+    # This ensures your preferred columns come first and no data is accidentally dropped.
+    df = df[existing_ordered_cols]
+    
     return df
 
-def variations(soup):
-    """Helper function to parse out variations table.  These are embedded as additional HTML
-    tables in the parent 'topic' so we have to do some nasty looking finding
-    
-    Args:
-        soup: the beautifulsoup object with the parent detector data, including the
-            variations we need to extract
-    
-    Return:
-        A dict with the data for each variation
-    """
-    # Do the aforementioned 'nasty looking finding'
-    variations = soup.find(lambda tag: tag.name == 'h2' and 'Variations' in tag.text)
-    variations = variations.find_all_next('a', class_='ft-expanding-block-link')
-
-    # For each identified variation, extract out some basic data, we don't have to handle
-    # the data source as this is the same as the parent detector
-    res = []
-    for var in variations:
-        table = []
-        rows = var.find_next('table').tbody.find_all('tr')
-        for r in rows:
-            cols = r.find_all('td')
-            cols = [ele.text.strip() for ele in cols]
-            table.append([ele for ele in cols if ele])
-    
-        detector = var.text
-        severity = [x for x in table if x[0] == 'Severity'][0][1]
-
-        # Again, we have to create a list from the mashed together MITRE
-        tactic = [x for x in table if x[0] == 'ATT&CK Tactic'][0][1].split(')')
-        tactic = [t.strip() + ")" for t in tactic if t]
-        technique = [x for x in table if x[0] == 'ATT&CK Technique'][0][1].split(')')
-        technique = [t.strip() + ")" for t in technique if t] 
-
-        res.append({
-            'detector': detector,
-            'severity': severity,
-            'tactic': tactic,
-            'technique': technique
-        })
-
-
-    return res
 
 def summary_statistics(df):
     """This function calculates the various summary statistics
@@ -328,11 +238,11 @@ def summary_statistics(df):
     """
     stats = {}
     stats['count_by_sev.csv'] = df['Severity'].value_counts()
-    stats['count_by_source.csv'] = df['Sources'].explode().value_counts()
-    stats['count_by_tactic.csv'] = df['ATT&CK Tactic'].explode().value_counts()
-    stats['count_by_technique.csv'] = df['ATT&CK Technique'].explode().value_counts()
-    stats['count_by_tag.csv'] = df['Detector Tags'].explode().value_counts()
-    stats['count_by_module.csv'] = df['Detection Modules'].value_counts()
+    stats['count_by_source.csv'] = df['Required Data'].dropna().str.split(',').explode().str.strip().value_counts()
+    stats['count_by_tactic.csv'] = df['ATT&CK Tactic'].dropna().str.split(',').explode().str.strip().value_counts()
+    stats['count_by_technique.csv'] = df['ATT&CK Technique'].dropna().str.split(',').explode().str.strip().value_counts()
+    stats['count_by_tag.csv'] = df['Detector Tags'].dropna().str.split(',').explode().str.strip().value_counts()
+    stats['count_by_module.csv'] = df['Detection Modules'].dropna().str.split(',').explode().str.strip().value_counts()
 
     return stats
 
