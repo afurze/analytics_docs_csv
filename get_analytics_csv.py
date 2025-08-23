@@ -108,7 +108,7 @@ def get_reader_topic_request(doc_ids, detector_ids):
 def parse_table_data(table_soup):
     """
     Parses a single HTML table and returns a dictionary of its key-value pairs.
-    Handles nested lists by joining items with commas.
+    Handles nested lists by extracting text only from the innermost list items.
     """
     data = {}
     rows = table_soup.find_all('tr')
@@ -116,34 +116,37 @@ def parse_table_data(table_soup):
         cols = r.find_all('td')
         if len(cols) >= 2:
             key = cols[0].get_text(strip=True)
-            
-            # --- Step 1: Extract the raw value without cleaning ---
-            first_ul = cols[1].find('ul')
-            if first_ul:
-                list_items = first_ul.find_all('li', recursive=False)
-                if list_items and list_items[0].find('ul'):
-                    nested_ul = list_items[0].find('ul')
-                    value = ", ".join([item.get_text(strip=True) for item in nested_ul.find_all('li')])
-                else:
-                    value = ", ".join([item.get_text(strip=True) for item in list_items])
+            value_cell = cols[1]
+
+            # --- Step 1: Extract the value robustly ---
+            # Find all list items ('li') and filter for the ones that do NOT
+            # contain a nested list ('ul'). This isolates the innermost data.
+            inner_list_items = [
+                li.get_text(strip=True) for li in value_cell.find_all('li')
+                if not li.find('ul')
+            ]
+
+            if inner_list_items:
+                # If we found innermost list items, join their text.
+                value = ", ".join(inner_list_items)
             else:
-                value = cols[1].get_text(strip=True)
-            
-            # --- Step 2: Conditionally clean the value 'Required Data' ---
+                # Otherwise, just get the cell's plain text.
+                value = value_cell.get_text(strip=True)
+
+            # --- Step 2: Conditionally clean the value for 'Required Data' ---
             if key == 'Required Data' and value:
-                # Split the comma-separated string, clean each part, then rejoin
+                # Split the comma-separated string, clean each part, then rejoin.
                 cleaned_parts = [part.strip().removesuffix('OR') for part in value.split(',')]
                 value = ", ".join(cleaned_parts)
-                
+
                 # If 'XDR Agent' is present (and XTH isn't already), add the XTH version.
                 if 'XDR Agent' in value and 'eXtended Threat Hunting (XTH)' not in value:
                     value += ", XDR Agent with eXtended Threat Hunting (XTH)"
-                
-            else:
-                value = cols[1].get_text(strip=True)
             
+            # Add the final key-value pair to our dictionary
             if value:
                 data[key] = value
+                
     return data
 
 def parse_topics(topics):
