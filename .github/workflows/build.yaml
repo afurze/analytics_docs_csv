@@ -1,5 +1,3 @@
-# .github/workflows/build-push-deploy.yml
-
 name: Build, Push, and Deploy Pipeline
 
 on:
