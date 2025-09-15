@@ -1,44 +1,75 @@
-# .github/workflows/build-and-test.yml
+# .github/workflows/build-push-deploy.yml
 
-name: Build Pipeline
+name: Build, Push, and Deploy Pipeline
 
-# Controls when the workflow will run
 on:
   push:
     branches: [ "main" ]
-  pull_request:
-    branches: [ "main" ]
 
-# A workflow run is made up of one or more jobs that can run sequentially or in parallel
+env:
+  GCP_PROJECT_ID: prod-mksv5m2rtl7g
+  GAR_LOCATION: us-central1
+  GAR_REPOSITORY: afurze-container-repo
+  IMAGE_NAME: analytics-docs
+  JOB_NAME: analytics-jobs-job
+
 jobs:
-  build-and-test:
-    # The type of runner that the job will run on
+  build-and-push:
     runs-on: ubuntu-latest
+    permissions:
+      contents: 'read'
+      id-token: 'write'
 
-    # Steps represent a sequence of tasks that will be executed as part of the job
     steps:
-      # 1. Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
       - name: Checkout code
         uses: actions/checkout@v4
 
-      # 2. Sets up a Python environment for use in actions
-      - name: Set up Python 3.12
-        uses: actions/setup-python@v5
+      - id: 'auth'
+        name: 'Authenticate to Google Cloud'
+        uses: 'google-github-actions/auth@v2'
         with:
-          python-version: '3.12'
+          workload_identity_provider: ${{ secrets.GCP_WIF_PROVIDER }}
+          service_account: ${{ secrets.GCP_SA_EMAIL }}
 
-      # 3. Installs dependencies from requirements.txt
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
+      - name: 'Docker Login to GAR'
+        uses: 'docker/login-action@v3'
+        with:
+          registry: ${{ env.GAR_LOCATION }}-docker.pkg.dev
+          username: 'oauth2accesstoken'
+          password: '${{ steps.auth.outputs.access_token }}'
 
-      # 4. (Optional) Run tests with a tool like pytest
-      # - name: Run tests with pytest
-      #   run: |
-      #     pip install pytest
-      #     pytest
+      - name: 'Build and Push'
+        uses: 'docker/build-push-action@v5'
+        with:
+          push: true
+          tags: ${{ env.GAR_LOCATION }}-docker.pkg.dev/${{ env.GCP_PROJECT_ID }}/${{ env.GAR_REPOSITORY }}/${{ env.IMAGE_NAME }}:latest
 
-      # 5. Build the Docker image to ensure the Dockerfile is valid
-      - name: Build Docker image
-        run: docker build . --file Dockerfile --tag analytics-docs:latest
+  deploy-and-run:
+    # This job will only run after 'build-and-push' is successful
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    permissions:
+      contents: 'read'
+      id-token: 'write'
+
+    steps:
+      - id: 'auth'
+        name: 'Authenticate to Google Cloud'
+        uses: 'google-github-actions/auth@v2'
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WIF_PROVIDER }}
+          service_account: ${{ secrets.GCP_SA_EMAIL }}
+      
+      # This step deploys the job definition
+      - id: 'deploy'
+        name: 'Deploy Cloud Run Job'
+        uses: 'google-github-actions/deploy-cloudrun@v2'
+        with:
+          job: ${{ env.JOB_NAME }}
+          image: ${{ env.GAR_LOCATION }}-docker.pkg.dev/${{ env.GCP_PROJECT_ID }}/${{ env.GAR_REPOSITORY }}/${{ env.IMAGE_NAME }}:latest
+          region: ${{ env.GAR_LOCATION }}
+
+      # This step executes the job
+      - name: 'Execute Cloud Run Job'
+        run: |-
+          gcloud run jobs execute ${{ env.JOB_NAME }} --region ${{ env.GAR_LOCATION }} --wait
