@@ -1,0 +1,44 @@
+# .github/workflows/build-and-test.yml
+
+name: Build Pipeline
+
+# Controls when the workflow will run
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+# A workflow run is made up of one or more jobs that can run sequentially or in parallel
+jobs:
+  build-and-test:
+    # The type of runner that the job will run on
+    runs-on: ubuntu-latest
+
+    # Steps represent a sequence of tasks that will be executed as part of the job
+    steps:
+      # 1. Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # 2. Sets up a Python environment for use in actions
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      # 3. Installs dependencies from requirements.txt
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      # 4. (Optional) Run tests with a tool like pytest
+      # - name: Run tests with pytest
+      #   run: |
+      #     pip install pytest
+      #     pytest
+
+      # 5. Build the Docker image to ensure the Dockerfile is valid
+      - name: Build Docker image
+        run: docker build . --file Dockerfile --tag analytics-docs:latest
