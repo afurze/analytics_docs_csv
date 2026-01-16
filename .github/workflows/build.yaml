@@ -1,19 +1,18 @@
-name: Build, Push, and Deploy Pipeline
+name: Build and Push Pipeline
 
 on:
   push:
     branches: [ "main" ]
 
 env:
-  GCP_PROJECT_ID: prod-mksv5m2rtl7g
+  GCP_PROJECT_ID: afurze
   GAR_LOCATION: us-central1
-  GAR_REPOSITORY: afurze-container-repo
+  GAR_REPOSITORY: docker-repo
   IMAGE_NAME: analytics-docs
-  JOB_NAME: analytics-jobs-job
   CORTEX_API_KEY: ${{secrets.CORTEX_API_KEY}}
   CORTEX_API_KEY_ID: ${{secrets.CORTEX_API_KEY_ID}}
   CORTEX_API_URL: https://api-aspinyshrub.xdr.us.paloaltonetworks.com
-  
+
 jobs:
   cortex-code-scan:
     runs-on: ubuntu-latest
@@ -21,7 +20,7 @@ jobs:
     steps:
     - name: Checkout Repository
       uses: actions/checkout@v2
-    
+
     - name: Set up Node.js
       uses: actions/setup-node@v4
       with:
@@ -72,48 +71,14 @@ jobs:
           service_account: ${{ secrets.GCP_SA_EMAIL }}
           audience: //iam.googleapis.com/projects/856801986229/locations/global/workloadIdentityPools/github-pool/providers/github-provider
 
-      # NEW: Set up gcloud and configure the Docker credential helper
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v2
 
       - name: Authorize Docker push
         run: gcloud auth configure-docker ${{ env.GAR_LOCATION }}-docker.pkg.dev
 
-      # The 'docker/login-action' is no longer needed and has been removed.
-      
       - name: 'Build and Push'
         uses: 'docker/build-push-action@v5'
         with:
           push: true
           tags: ${{ env.GAR_LOCATION }}-docker.pkg.dev/${{ env.GCP_PROJECT_ID }}/${{ env.GAR_REPOSITORY }}/${{ env.IMAGE_NAME }}:latest
-
-  deploy-and-run:
-    # ... (This job remains the same)
-    needs: build-and-push
-    runs-on: ubuntu-latest
-    permissions:
-      contents: 'read'
-      id-token: 'write'
-
-    steps:
-      - id: 'auth'
-        name: 'Authenticate to Google Cloud'
-        uses: 'google-github-actions/auth@v2'
-        with:
-          workload_identity_provider: ${{ secrets.GCP_WIF_PROVIDER }}
-          service_account: ${{ secrets.GCP_SA_EMAIL }}
-          audience: //iam.googleapis.com/projects/856801986229/locations/global/workloadIdentityPools/github-pool/providers/github-provider
-      
-      - id: 'deploy'
-        name: 'Deploy Cloud Run Job'
-        uses: 'google-github-actions/deploy-cloudrun@v2'
-        with:
-          job: ${{ env.JOB_NAME }}
-          image: ${{ env.GAR_LOCATION }}-docker.pkg.dev/${{ env.GCP_PROJECT_ID }}/${{ env.GAR_REPOSITORY }}/${{ env.IMAGE_NAME }}:latest
-          region: ${{ env.GAR_LOCATION }}
-          service_account: analytics-job-runner-sa@prod-mksv5m2rtl7g.iam.gserviceaccount.com
-
-
-      - name: 'Execute Cloud Run Job'
-        run: |-
-          gcloud run jobs execute ${{ env.JOB_NAME }} --region ${{ env.GAR_LOCATION }} --wait
