@@ -6,6 +6,7 @@ This module handles authentication and writing data to Google Sheets using a ser
 
 import gspread
 from google.oauth2.service_account import Credentials
+from google.auth import default
 import pandas as pd
 import sys
 import os
@@ -45,28 +46,40 @@ SHEET_CONFIG = {
 
 
 def authenticate_gspread():
-    """Authenticate with Google Sheets using a service account
+    """Authenticate with Google Sheets using a service account or Application Default Credentials
 
     Returns:
         gspread.Client: Authenticated gspread client
     """
-    if not os.path.exists(GOOGLE_SERVICE_ACCOUNT_FILE):
-        print(f"Error: Service account file not found: {GOOGLE_SERVICE_ACCOUNT_FILE}")
-        print("\nTo set up service account authentication:")
-        print("1. Go to Google Cloud Console")
-        print("2. Navigate to IAM & Admin > Service Accounts")
-        print("3. Create a service account (or use existing)")
-        print("4. Create and download a JSON key file")
-        print(f"5. Save it as '{GOOGLE_SERVICE_ACCOUNT_FILE}' in this directory")
-        print("6. Share your Google Sheet with the service account email")
-        sys.exit(1)
-
     scopes = [
         'https://www.googleapis.com/auth/spreadsheets',
         'https://www.googleapis.com/auth/drive'
     ]
 
-    creds = Credentials.from_service_account_file(GOOGLE_SERVICE_ACCOUNT_FILE, scopes=scopes)
+    # Try to use credentials file if it exists (for local development)
+    if os.path.exists(GOOGLE_SERVICE_ACCOUNT_FILE):
+        print(f"Using service account file: {GOOGLE_SERVICE_ACCOUNT_FILE}")
+        creds = Credentials.from_service_account_file(GOOGLE_SERVICE_ACCOUNT_FILE, scopes=scopes)
+    else:
+        # Fall back to Application Default Credentials (for GCP Cloud Run)
+        print("Service account file not found, using Application Default Credentials (GCP)")
+        try:
+            creds, project = default(scopes=scopes)
+            print(f"Authenticated using ADC for project: {project}")
+        except Exception as e:
+            print(f"Error: Could not authenticate with Application Default Credentials: {e}")
+            print("\nFor local development:")
+            print("1. Go to Google Cloud Console")
+            print("2. Navigate to IAM & Admin > Service Accounts")
+            print("3. Create a service account (or use existing)")
+            print("4. Create and download a JSON key file")
+            print(f"5. Save it as '{GOOGLE_SERVICE_ACCOUNT_FILE}' in this directory")
+            print("6. Share your Google Sheet with the service account email")
+            print("\nFor GCP Cloud Run:")
+            print("1. Ensure your Cloud Run service has a service account attached")
+            print("2. Grant the service account access to Google Sheets API")
+            print("3. Share your Google Sheet with the service account email")
+            sys.exit(1)
 
     return gspread.authorize(creds)
 
