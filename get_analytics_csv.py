@@ -1,11 +1,9 @@
 from bs4 import BeautifulSoup
 import json
-from mitreattack.navlayers.core import Layer
-from mitreattack.stix20 import MitreAttackData
 import pandas as pd
-import re
 import requests
 import sys
+from google_sheets_export import authenticate_gspread, write_to_google_sheets
 
 
 # Cortex Doc portal base URL
@@ -249,30 +247,6 @@ def summary_statistics(df):
 
     return stats
 
-def generate_heatmap(df):
-    # Initialize layer
-    layer = Layer()
-    layer.from_file('/output/layer_template.json')
-    # layer.from_file('layer_template.json')
-
-    # Enable Techniques
-    all_technique_ids = set()
-    for t in df['ATT&CK Technique'].explode():
-        pattern = r"\(([^)]+)\)"
-        match = re.search(pattern, t)
-
-        if match:
-            result = match.group(1)
-            all_technique_ids.add(result)
-
-    for t in layer.layer.techniques:
-        if t.techniqueID in all_technique_ids:
-            t.enabled = True
-            t.color = "#31a354"
-
-    return layer
-            
-
 def main():
     """This application is designed to extract all of the Cortex XSIAM Analytics detectors
     from the product documentation web app.  The web app makes it impossible to extract this data
@@ -285,13 +259,13 @@ def main():
     topics = get_reader_topic_request(doc_ids, detector_ids)
     df = parse_topics(topics)
     stats = summary_statistics(df)
-    layer = generate_heatmap(df)
 
-    # Export
-    layer.to_file('/output/layer.json')
-    for fname, statdf in stats.items():
-        statdf.to_csv('/output/' + fname, index=True)
-    df.to_csv('/output/analytics_alerts.csv', index=False)
+    # Export to Google Sheets
+    print("\nAuthenticating with Google Sheets...")
+    gc = authenticate_gspread()
+
+    print("Writing data to Google Sheets...")
+    write_to_google_sheets(gc, df, stats)
     
 if __name__ == '__main__':
     main()
