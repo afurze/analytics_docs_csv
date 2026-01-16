@@ -54,6 +54,7 @@ jobs:
           --create-repo-if-missing
 
   build-and-push:
+    needs: cortex-code-scan
     runs-on: ubuntu-latest
     permissions:
       contents: 'read'
@@ -67,9 +68,8 @@ jobs:
         name: 'Authenticate to Google Cloud'
         uses: 'google-github-actions/auth@v2'
         with:
-          workload_identity_provider: ${{ secrets.GCP_WIF_PROVIDER }}
-          service_account: ${{ secrets.GCP_SA_EMAIL }}
-          audience: //iam.googleapis.com/projects/856801986229/locations/global/workloadIdentityPools/github-pool/providers/github-provider
+          workload_identity_provider: 'projects/739495185422/locations/global/workloadIdentityPools/github-pool/providers/github-provider'
+          service_account: 'svcanalyticsdocs@afurze.iam.gserviceaccount.com'
 
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v2
