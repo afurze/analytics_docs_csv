@@ -151,7 +151,7 @@ def parse_topics(topics):
     all_detectors_data = []
     for t in topics:
         soup = BeautifulSoup(t['topic']['text'], 'html.parser')
-    
+
         # --- Part 1: Extract the Main Detector ---
         main_detector_data = {}
         # The main table is the first one in the HTML
@@ -178,7 +178,7 @@ def parse_topics(topics):
             target_id = section.get('id')
             link_tag = soup.find('a', {'data-target-id': target_id})
             title = link_tag.get_text(strip=True) if link_tag else 'Untitled Variation'
-            
+
             # Start with a copy of the parent's data as a base for the variation
             complete_variation = main_detector_data.copy()
 
@@ -197,9 +197,20 @@ def parse_topics(topics):
 
         all_data_list = [main_detector_data] + variations_data
         all_detectors_data.extend(all_data_list)
-    
+
     df = pd.DataFrame(all_detectors_data)
-    
+
+    # Extract all unique data sources from the Required Data column
+    all_sources = df['Required Data'].dropna().str.split(',').explode().str.strip().unique()
+    # Sort sources alphabetically for consistent column ordering
+    all_sources = sorted(all_sources)
+
+    # Create columns for each unique data source and mark with 'x' where applicable
+    for source in all_sources:
+        df.loc[:, source] = df['Required Data'].apply(
+            lambda x: 'x' if pd.notna(x) and source in [s.strip() for s in x.split(',')] else ''
+        )
+
     # Define the desired order of columns
     desired_order = [
         'Name',
@@ -216,14 +227,17 @@ def parse_topics(topics):
         'Required Data',
         'Response playbooks'
     ]
-    
+
     # Create a list of columns that exist in the DataFrame, following the desired order
     existing_ordered_cols = [col for col in desired_order if col in df.columns]
-    
+
+    # Add the dynamically generated source columns after the base columns
+    final_column_order = existing_ordered_cols + list(all_sources)
+
     # Combine the lists to create the final column order and re-index the DataFrame
     # This ensures your preferred columns come first and no data is accidentally dropped.
-    df = df[existing_ordered_cols]
-    
+    df = df[final_column_order]
+
     return df
 
 

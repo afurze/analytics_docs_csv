@@ -298,43 +298,19 @@ def write_to_google_sheets(gc, df, stats):
             worksheet.update(range_name='A1', values=[[last_updated_text]], value_input_option='RAW')
             print(f"  ✓ Set last updated date: {current_date}")
 
+            # Write headers to row 2
+            headers = df.columns.tolist()
+            worksheet.update(range_name='A2', values=[headers])
+            print(f"  ✓ Wrote {len(headers)} column headers to row 2")
+
             # Convert DataFrame to list of lists (data only, no headers)
-            # Headers are already in row 2, so we only write the data
+            # Data starts at row 3
             data = df.fillna('').astype(str).values.tolist()
 
             # Update the specific range
             detectors_range = SHEET_CONFIG['detectors_range']
             worksheet.update(range_name=detectors_range, values=data)
             print(f"  ✓ Wrote {len(df)} detector rows starting at {detectors_range}")
-
-            # Copy formulas from row 3 (columns N:AS) down to all data rows
-            # This uses the Sheets API to copy formulas so they auto-adjust row references
-            num_data_rows = len(df)
-            if num_data_rows > 1:
-                # Build a batch update request to copy formulas from N3:AS3 to rows 4 onwards
-                # Column N is index 13 (0-based), Column AS is index 44 (0-based)
-                requests = [{
-                    "copyPaste": {
-                        "source": {
-                            "sheetId": worksheet.id,
-                            "startRowIndex": 2,  # Row 3 (0-based index)
-                            "endRowIndex": 3,    # Exclusive, so just row 3
-                            "startColumnIndex": 13,  # Column N
-                            "endColumnIndex": 45     # Column AS + 1 (exclusive)
-                        },
-                        "destination": {
-                            "sheetId": worksheet.id,
-                            "startRowIndex": 3,  # Row 4 (0-based index)
-                            "endRowIndex": 2 + num_data_rows,  # Through last data row
-                            "startColumnIndex": 13,  # Column N
-                            "endColumnIndex": 45     # Column AS + 1 (exclusive)
-                        },
-                        "pasteType": "PASTE_FORMULA"
-                    }
-                }]
-
-                spreadsheet.batch_update({"requests": requests})
-                print(f"  ✓ Copied formulas from N3:AS3 to N4:AS{2 + num_data_rows}")
 
         except gspread.exceptions.WorksheetNotFound:
             print(f"Error: Worksheet '{detectors_tab}' not found. Please create it first.")

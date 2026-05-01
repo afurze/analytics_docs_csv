@@ -4,6 +4,8 @@ services:
     build:
       context: .
       dockerfile: ./Dockerfile
+    env_file:
+      - .env
     volumes:
       - /Users/afurze/Projects/analytics_docs/:/output
 
