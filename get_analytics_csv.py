@@ -3,8 +3,7 @@ import pandas as pd
 import requests
 import sys
 from config import (
-    GITBOOK_API_BASE, PUBLIC_DOCS_BASE, ALERTS_INDEX_PATH,
-    GITBOOK_SPACE_ID, get_gitbook_token,
+    GITBOOK_API_BASE, GITBOOK_SPACE_ID, get_gitbook_token,
 )
 from google_sheets_export import authenticate_gspread, write_to_google_sheets
 
@@ -65,46 +64,6 @@ class GitBookClient:
         print(f"Fetched all {len(alerts)} alert pages")
         return alerts
 
-
-class PublicDocsClient:
-    """Fetches alert content via public .md URLs (no auth required)."""
-
-    def __init__(self):
-        self.session = requests.Session()
-
-    def get_alert_index(self):
-        url = f"{PUBLIC_DOCS_BASE}{ALERTS_INDEX_PATH}.md"
-        resp = self.session.get(url)
-        resp.raise_for_status()
-        pattern = r'\[(.+?)\]\((/analytics-alerts/alerts/.+?\.md)\)'
-        matches = re.findall(pattern, resp.text)
-        return [(name, path) for name, path in matches]
-
-    def get_alert_content(self, path):
-        url = f"{PUBLIC_DOCS_BASE}{path}"
-        if not url.endswith('.md'):
-            url += '.md'
-        resp = self.session.get(url)
-        resp.raise_for_status()
-        return resp.text
-
-    def fetch_all_alerts(self):
-        print("Fetching alert index from public docs...")
-        alert_links = self.get_alert_index()
-        print(f"Found {len(alert_links)} alerts in index")
-
-        alerts = []
-        for i, (name, path) in enumerate(alert_links):
-            try:
-                markdown = self.get_alert_content(path)
-                alerts.append({'name': name, 'markdown': markdown})
-            except requests.RequestException as e:
-                print(f"  Warning: failed to fetch {name}: {e}")
-            if (i + 1) % 100 == 0:
-                print(f"  Fetched {i + 1}/{len(alert_links)} pages...")
-
-        print(f"Fetched {len(alerts)} alert pages")
-        return alerts
 
 
 def _parse_markdown_table(table_text):
@@ -228,18 +187,15 @@ def summary_statistics(df):
 
 def main():
     token = get_gitbook_token()
+    if not token:
+        print("Error: No GitBook API token found. Set GITBOOK_API_KEY or configure GCP Secret Manager.")
+        sys.exit(1)
+    if not GITBOOK_SPACE_ID:
+        print("Error: No GitBook Space ID configured. Set GITBOOK_SPACE_ID.")
+        sys.exit(1)
 
-    if token and GITBOOK_SPACE_ID:
-        print("Using GitBook API client")
-        client = GitBookClient(GITBOOK_SPACE_ID, token)
-    else:
-        if not token:
-            print("No GitBook API token found")
-        if not GITBOOK_SPACE_ID:
-            print("No GitBook Space ID configured")
-        print("Falling back to public docs client (no auth required)")
-        client = PublicDocsClient()
-
+    print("Using GitBook API client")
+    client = GitBookClient(GITBOOK_SPACE_ID, token)
     alerts = client.fetch_all_alerts()
 
     if not alerts:

@@ -2,8 +2,6 @@ import os
 
 
 GITBOOK_API_BASE = "https://api.gitbook.com/v1"
-PUBLIC_DOCS_BASE = "https://cortex-docs.paloaltonetworks.com"
-ALERTS_INDEX_PATH = "/analytics-alerts/alerts"
 
 GITBOOK_SPACE_ID = os.getenv('GITBOOK_SPACE_ID', '')
 GITBOOK_API_TOKEN = os.getenv('GITBOOK_API_KEY', '')
