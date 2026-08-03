@@ -1,9 +1,3 @@
-"""
-Google Sheets export functionality for Cortex Analytics documentation data.
-
-This module handles authentication and writing data to Google Sheets using a service account.
-"""
-
 import gspread
 from google.oauth2.service_account import Credentials
 from google.auth import default
@@ -11,14 +5,7 @@ import pandas as pd
 import sys
 import os
 from datetime import datetime
-
-
-# Google Sheets Configuration
-# Set these environment variables or modify them directly:
-# - GOOGLE_SERVICE_ACCOUNT_FILE: Path to your service account JSON key file
-# - GOOGLE_SHEET_ID: The ID of your Google Sheet (from the URL)
-GOOGLE_SERVICE_ACCOUNT_FILE = os.getenv('GOOGLE_SERVICE_ACCOUNT_FILE', 'credentials.json')
-GOOGLE_SHEET_ID = os.getenv('GOOGLE_SHEET_ID', '')
+from config import GOOGLE_SERVICE_ACCOUNT_FILE, GOOGLE_SHEET_ID
 
 # Sheet layout configuration
 # Specify the tab names and cell ranges for each data element

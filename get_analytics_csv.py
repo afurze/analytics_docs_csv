@@ -1,217 +1,197 @@
-from bs4 import BeautifulSoup
-import json
+import re
 import pandas as pd
 import requests
 import sys
+from config import (
+    GITBOOK_API_BASE, PUBLIC_DOCS_BASE, ALERTS_INDEX_PATH,
+    GITBOOK_SPACE_ID, get_gitbook_token,
+)
 from google_sheets_export import authenticate_gspread, write_to_google_sheets
 
 
-# Cortex Doc portal base URL
-BASE_URL = "https://docs-cortex.paloaltonetworks.com/internal/api/webapp"
+class GitBookClient:
+    """Fetches alert content via the GitBook API (requires space ID and API token)."""
 
-
-def get_page_ids():
-    """Handles HTML request to get the page Ids which we can then use to get the topic Ids
-    
-    Args:
-        None
-
-    Returns:
-        The response text as JSON
-    """
-
-    url = BASE_URL + "/pretty-url/reader"
-
-    # There is an XDR and an XSIAM docs page, we'll use the XSIAM version (as far as I know
-    # they're identitical, but this could change)
-    data = {
-        'prettyUrl': "Cortex-XSIAM/Cortex-XSIAM-Analytics-Alert-Reference-by-Alert-name",
-        'forcedTocId': 'null'
-    }
-
-    resp = requests.post(url=url, json=data)
-    if resp.status_code != 200:
-        print("Error: " + json.dumps(resp.json()))
-        sys.exit(1)
-    return resp.json()
-
-def get_topics(doc_ids):
-    """Handles HTML request to get the topic Ids, which we can then use to
-    request the actual contents
-    
-    Args:
-        doc_ids: A JSON object containing all the page Ids we need topics for
-
-    Returns:
-        The response text as JSON
-    """
-    url = BASE_URL + "/maps/{0}/toc?".format(doc_ids['documentId'])
-
-    resp = requests.get(url=url)
-    return resp.json()
-
-def parse_toc(topics):
-    """Parse out the topic list so that we can make our requests to get content
-
-    Args:
-        topics: A JSON object containing the topic data
-
-    Returns:
-        An array of JSON objects containing the parsed topic data
-    """
-    detector_ids = []
-
-    for x in topics['toc'][1:]:
-        detector_ids.append({
-            'detector': x,
-            'tocId': x['topic']['tocId'],
-            'contentId': x['topic']['link']['contentId'],
-            'title': x['topic']['title'],
-            'ratingGroupId': x['topic']['ratingGroupId'],
-            # 'relativeTopicPivot': x['topic']['relativeTopicPivot']
+    def __init__(self, space_id, api_token):
+        self.space_id = space_id
+        self.session = requests.Session()
+        self.session.headers.update({
+            'Authorization': f'Bearer {api_token}',
+            'Accept': 'application/json',
         })
 
+    def list_pages(self):
+        url = f"{GITBOOK_API_BASE}/spaces/{self.space_id}/content/pages"
+        resp = self.session.get(url)
+        resp.raise_for_status()
+        return resp.json().get('pages', [])
 
-    return detector_ids
+    def _collect_alert_pages(self, pages):
+        """Recursively walk the page tree and collect individual alert pages."""
+        alert_pages = []
+        for page in pages:
+            path = page.get('path', '')
+            if path.startswith('alerts/') and path != 'alerts':
+                alert_pages.append(page)
+            children = page.get('pages', [])
+            if children:
+                alert_pages.extend(self._collect_alert_pages(children))
+        return alert_pages
 
-def get_reader_topic_request(doc_ids, detector_ids):
-    """Handle sending HTML requests to get the actual page body for each detector
-    
-    Args:
-        doc_ids: the page Ids we are requesting from
-        detector_ids: the section Ids for each detector we are requesting
-    
-    Returns:
-        The JSON object topics key which contains the raw page data
-    """
-    topics = []
+    def get_page_content(self, page_id):
+        url = f"{GITBOOK_API_BASE}/spaces/{self.space_id}/content/page/{page_id}"
+        resp = self.session.get(url, params={'format': 'markdown'})
+        resp.raise_for_status()
+        data = resp.json()
+        return data.get('markdown', '') or data.get('document', {}).get('markdown', '')
 
-    # Build the request data for each detector
-    for x in detector_ids:
-        topics.append({
-            'sourceType': 'OFFICIAL',
-            'originMapId': doc_ids['documentId'],
-            'originTocId': x['tocId'],
-            'contentId': x['contentId']
-        })
+    def fetch_all_alerts(self):
+        print("Fetching page list from GitBook API...")
+        all_pages = self.list_pages()
+        alert_pages = self._collect_alert_pages(all_pages)
+        print(f"Found {len(alert_pages)} alert pages")
 
-    url = BASE_URL + "/reader/topics/request"
-    data = {
-        'topics': topics
-    }
-    resp = requests.post(url=url, json=data)
+        alerts = []
+        for i, page in enumerate(alert_pages):
+            title = page.get('title', '')
+            page_id = page.get('id', '')
+            if not page_id:
+                continue
+            markdown = self.get_page_content(page_id)
+            alerts.append({'name': title, 'markdown': markdown})
+            if (i + 1) % 100 == 0:
+                print(f"  Fetched {i + 1}/{len(alert_pages)} pages...")
 
-    return resp.json()['topics']
+        print(f"Fetched all {len(alerts)} alert pages")
+        return alerts
 
-def parse_table_data(table_soup):
-    """
-    Parses a single HTML table and returns a dictionary of its key-value pairs.
-    Handles nested lists by extracting text only from the innermost list items.
-    """
+
+class PublicDocsClient:
+    """Fetches alert content via public .md URLs (no auth required)."""
+
+    def __init__(self):
+        self.session = requests.Session()
+
+    def get_alert_index(self):
+        url = f"{PUBLIC_DOCS_BASE}{ALERTS_INDEX_PATH}.md"
+        resp = self.session.get(url)
+        resp.raise_for_status()
+        pattern = r'\[(.+?)\]\((/analytics-alerts/alerts/.+?\.md)\)'
+        matches = re.findall(pattern, resp.text)
+        return [(name, path) for name, path in matches]
+
+    def get_alert_content(self, path):
+        url = f"{PUBLIC_DOCS_BASE}{path}"
+        if not url.endswith('.md'):
+            url += '.md'
+        resp = self.session.get(url)
+        resp.raise_for_status()
+        return resp.text
+
+    def fetch_all_alerts(self):
+        print("Fetching alert index from public docs...")
+        alert_links = self.get_alert_index()
+        print(f"Found {len(alert_links)} alerts in index")
+
+        alerts = []
+        for i, (name, path) in enumerate(alert_links):
+            try:
+                markdown = self.get_alert_content(path)
+                alerts.append({'name': name, 'markdown': markdown})
+            except requests.RequestException as e:
+                print(f"  Warning: failed to fetch {name}: {e}")
+            if (i + 1) % 100 == 0:
+                print(f"  Fetched {i + 1}/{len(alert_links)} pages...")
+
+        print(f"Fetched {len(alerts)} alert pages")
+        return alerts
+
+
+def _parse_markdown_table(table_text):
+    """Parse a markdown table into a dict of field→value pairs."""
     data = {}
-    rows = table_soup.find_all('tr')
-    for r in rows:
-        cols = r.find_all('td')
-        if len(cols) >= 2:
-            key = cols[0].get_text(strip=True)
-            value_cell = cols[1]
-
-            # --- Step 1: Extract the value robustly ---
-            # Find all list items ('li') and filter for the ones that do NOT
-            # contain a nested list ('ul'). This isolates the innermost data.
-            inner_list_items = [
-                li.get_text(strip=True) for li in value_cell.find_all('li')
-                if not li.find('ul')
-            ]
-
-            if inner_list_items:
-                # If we found innermost list items, join their text.
-                value = ", ".join(inner_list_items)
-            else:
-                # Otherwise, just get the cell's plain text.
-                value = value_cell.get_text(strip=True)
-
-            # --- Step 2: Conditionally clean the value for 'Required Data' ---
-            if key == 'Required Data' and value:
-                # Split the comma-separated string, clean each part, then rejoin.
-                cleaned_parts = [part.strip().removesuffix('OR') for part in value.split(',')]
-                value = ", ".join(cleaned_parts)
-
-                # If 'XDR Agent' is present (and XTH isn't already), add the XTH version.
-                if 'XDR Agent' in value and 'eXtended Threat Hunting (XTH)' not in value:
-                    value += ", XDR Agent with eXtended Threat Hunting (XTH)"
-            
-            # Add the final key-value pair to our dictionary
+    for line in table_text.strip().split('\n'):
+        line = line.strip()
+        if not line.startswith('|') or '---' in line:
+            continue
+        cells = [c.strip() for c in line.split('|')]
+        cells = [c for c in cells if c]
+        if len(cells) >= 2:
+            key = cells[0].replace('\\&', '&')
+            value = cells[1].replace('\\&', '&').replace('\\_', '_')
+            if key in ('Field', 'field'):
+                continue
             if value:
                 data[key] = value
-                
     return data
 
-def parse_topics(topics):
-    all_detectors_data = []
-    for t in topics:
-        soup = BeautifulSoup(t['topic']['text'], 'html.parser')
 
-        # --- Part 1: Extract the Main Detector ---
-        main_detector_data = {}
-        # The main table is the first one in the HTML
-        main_table = soup.find('table')
-        if main_table:
-            main_detector_data = parse_table_data(main_table)
-            main_detector_data['Type'] = 'Detector'
+def _clean_required_data(value):
+    """Apply the same Required Data cleaning as the original scraper."""
+    if not value:
+        return value
+    cleaned_parts = [part.strip().removesuffix('OR') for part in value.split(',')]
+    value = ', '.join(p.strip() for p in cleaned_parts if p.strip())
+    if 'XDR Agent' in value and 'eXtended Threat Hunting (XTH)' not in value:
+        value += ', XDR Agent with eXtended Threat Hunting (XTH)'
+    return value
 
-        # Get the name of the main detector to use as a parent identifier
-        # main_detector_name_tag = soup.find('a', class_='ft-expanding-block-link')
-        # main_detector_name = main_detector_name_tag.get_text(strip=True) if main_detector_name_tag else 'Main Detector'
 
-        # Add the name to the main detector's data
-        main_detector_data['Name'] = t['topic']['title']
+def parse_alert_markdown(name, markdown_text):
+    """Parse a single alert's markdown into a list of detector dicts (parent + variations)."""
+    sections = re.split(r'^## ', markdown_text, flags=re.MULTILINE)
 
-        # --- Part 2: Extract the Variations ---
-        variations_data = []
+    synopsis_data = {}
+    for section in sections:
+        if section.startswith('Synopsis'):
+            synopsis_data = _parse_markdown_table(section)
+            break
 
-        # Find all the variation sections by their class
-        variations_sections = soup.find_all('div', class_='ft-expanding-block-content')
+    if 'Required Data' in synopsis_data:
+        synopsis_data['Required Data'] = _clean_required_data(synopsis_data['Required Data'])
 
-        for section in variations_sections:
-            # Find the title of this variation using its data-target-id
-            target_id = section.get('id')
-            link_tag = soup.find('a', {'data-target-id': target_id})
-            title = link_tag.get_text(strip=True) if link_tag else 'Untitled Variation'
+    main_detector = dict(synopsis_data)
+    main_detector['Type'] = 'Detector'
+    main_detector['Name'] = name
 
-            # Start with a copy of the parent's data as a base for the variation
-            complete_variation = main_detector_data.copy()
+    results = [main_detector]
 
-            # Get the data specific to this variation
-            variation_specific_data = parse_table_data(section)
+    variation_pattern = r'<details>\s*<summary>(.*?)</summary>(.*?)</details>'
+    variations = re.findall(variation_pattern, markdown_text, flags=re.DOTALL)
 
-            # Update the base with the variation's data, overwriting any shared keys
-            complete_variation.update(variation_specific_data)
+    for var_name, var_body in variations:
+        var_name = var_name.strip()
+        var_data = _parse_markdown_table(var_body)
+        if 'Required Data' in var_data:
+            var_data['Required Data'] = _clean_required_data(var_data['Required Data'])
 
-            # Set the correct metadata for the variation record
-            complete_variation['Type'] = 'Variation'
-            complete_variation['Name'] = title
-            complete_variation['Parent Detector'] = main_detector_data.get('Name')
+        complete_variation = dict(main_detector)
+        complete_variation.update(var_data)
+        complete_variation['Type'] = 'Variation'
+        complete_variation['Name'] = var_name
+        complete_variation['Parent Detector'] = name
+        results.append(complete_variation)
 
-            variations_data.append(complete_variation)
+    return results
 
-        all_data_list = [main_detector_data] + variations_data
-        all_detectors_data.extend(all_data_list)
 
-    df = pd.DataFrame(all_detectors_data)
+def build_dataframe(alerts):
+    """Convert parsed alert dicts into a DataFrame with dynamic data source columns."""
+    all_detectors = []
+    for alert in alerts:
+        detectors = parse_alert_markdown(alert['name'], alert['markdown'])
+        all_detectors.extend(detectors)
 
-    # Extract all unique data sources from the Required Data column
+    df = pd.DataFrame(all_detectors)
+
     all_sources = df['Required Data'].dropna().str.split(',').explode().str.strip().unique()
-    # Sort sources alphabetically for consistent column ordering
     all_sources = sorted(all_sources)
 
-    # Create columns for each unique data source and mark with 'x' where applicable
     for source in all_sources:
         df.loc[:, source] = df['Required Data'].apply(
-            lambda x: 'x' if pd.notna(x) and source in [s.strip() for s in x.split(',')] else ''
+            lambda x, s=source: 'x' if pd.notna(x) and s in [p.strip() for p in x.split(',')] else ''
         )
 
-    # Define the desired order of columns
     desired_order = [
         'Name',
         'Parent Detector',
@@ -228,29 +208,14 @@ def parse_topics(topics):
         'Response playbooks'
     ]
 
-    # Create a list of columns that exist in the DataFrame, following the desired order
     existing_ordered_cols = [col for col in desired_order if col in df.columns]
-
-    # Add the dynamically generated source columns after the base columns
     final_column_order = existing_ordered_cols + list(all_sources)
-
-    # Combine the lists to create the final column order and re-index the DataFrame
-    # This ensures your preferred columns come first and no data is accidentally dropped.
     df = df[final_column_order]
 
     return df
 
 
 def summary_statistics(df):
-    """This function calculates the various summary statistics
-    
-    Args:
-        df: The dataframe to calculate on.
-    
-    Returns:
-        A dict of multiple dataframes containing each of the summaries, the key represents
-        the filename that will be used to export each df.
-    """
     stats = {}
     stats['count_by_sev.csv'] = df['Severity'].value_counts()
     stats['count_by_source.csv'] = df['Required Data'].dropna().str.split(',').explode().str.strip().value_counts()
@@ -258,28 +223,40 @@ def summary_statistics(df):
     stats['count_by_technique.csv'] = df['ATT&CK Technique'].dropna().str.split(',').explode().str.strip().value_counts()
     stats['count_by_tag.csv'] = df['Detector Tags'].dropna().str.split(',').explode().str.strip().value_counts()
     stats['count_by_module.csv'] = df['Detection Modules'].dropna().str.split(',').explode().str.strip().value_counts()
-
     return stats
 
+
 def main():
-    """This application is designed to extract all of the Cortex XSIAM Analytics detectors
-    from the product documentation web app.  The web app makes it impossible to extract this data
-    from it directly to a format that allows simplified filtering and searching, so this
-    application was created as an aid for PANW employees and customers alike.
-    """
-    doc_ids = get_page_ids()
-    topics = get_topics(doc_ids)
-    detector_ids = parse_toc(topics)
-    topics = get_reader_topic_request(doc_ids, detector_ids)
-    df = parse_topics(topics)
+    token = get_gitbook_token()
+
+    if token and GITBOOK_SPACE_ID:
+        print("Using GitBook API client")
+        client = GitBookClient(GITBOOK_SPACE_ID, token)
+    else:
+        if not token:
+            print("No GitBook API token found")
+        if not GITBOOK_SPACE_ID:
+            print("No GitBook Space ID configured")
+        print("Falling back to public docs client (no auth required)")
+        client = PublicDocsClient()
+
+    alerts = client.fetch_all_alerts()
+
+    if not alerts:
+        print("Error: No alerts fetched. Exiting.")
+        sys.exit(1)
+
+    df = build_dataframe(alerts)
+    print(f"\nProcessed {len(df)} detector records")
+
     stats = summary_statistics(df)
 
-    # Export to Google Sheets
     print("\nAuthenticating with Google Sheets...")
     gc = authenticate_gspread()
 
     print("Writing data to Google Sheets...")
     write_to_google_sheets(gc, df, stats)
-    
+
+
 if __name__ == '__main__':
     main()
