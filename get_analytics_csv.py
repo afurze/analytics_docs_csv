@@ -1,4 +1,5 @@
 import re
+import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import pandas as pd
@@ -15,23 +16,35 @@ class GitBookClient:
 
     def __init__(self, space_id, api_token):
         self.space_id = space_id
+        self._rate_lock = threading.Lock()
+        self._backoff_until = 0
         self.session = requests.Session()
         self.session.headers.update({
             'Authorization': f'Bearer {api_token}',
             'Accept': 'application/json',
         })
 
-    def list_pages(self, retries=3):
-        url = f"{GITBOOK_API_BASE}/spaces/{self.space_id}/content/pages"
+    def _request(self, method, url, retries=5, **kwargs):
         for attempt in range(retries):
-            resp = self.session.get(url)
+            wait_until = self._backoff_until
+            now = time.monotonic()
+            if now < wait_until:
+                time.sleep(wait_until - now)
+            resp = self.session.request(method, url, **kwargs)
             if resp.status_code == 429:
-                wait = float(resp.headers.get('Retry-After', 2 ** attempt))
-                time.sleep(wait)
+                delay = float(resp.headers.get('Retry-After', 2 ** attempt))
+                with self._rate_lock:
+                    self._backoff_until = max(self._backoff_until, time.monotonic() + delay)
+                time.sleep(delay)
                 continue
             resp.raise_for_status()
-            return resp.json().get('pages', [])
+            return resp
         resp.raise_for_status()
+
+    def list_pages(self):
+        url = f"{GITBOOK_API_BASE}/spaces/{self.space_id}/content/pages"
+        resp = self._request('GET', url)
+        return resp.json().get('pages', [])
 
     def _collect_alert_pages(self, pages):
         """Recursively walk the page tree and collect individual alert pages."""
@@ -45,18 +58,11 @@ class GitBookClient:
                 alert_pages.extend(self._collect_alert_pages(children))
         return alert_pages
 
-    def get_page_content(self, page_id, retries=3):
+    def get_page_content(self, page_id):
         url = f"{GITBOOK_API_BASE}/spaces/{self.space_id}/content/page/{page_id}"
-        for attempt in range(retries):
-            resp = self.session.get(url, params={'format': 'markdown'})
-            if resp.status_code == 429:
-                wait = float(resp.headers.get('Retry-After', 2 ** attempt))
-                time.sleep(wait)
-                continue
-            resp.raise_for_status()
-            data = resp.json()
-            return data.get('markdown', '') or data.get('document', {}).get('markdown', '')
-        resp.raise_for_status()
+        resp = self._request('GET', url, params={'format': 'markdown'})
+        data = resp.json()
+        return data.get('markdown', '') or data.get('document', {}).get('markdown', '')
 
     def _fetch_page(self, page):
         title = page.get('title', '')
@@ -66,25 +72,34 @@ class GitBookClient:
         markdown = self.get_page_content(page_id)
         return {'name': title, 'markdown': markdown}
 
-    def fetch_all_alerts(self, max_workers=10):
+    def fetch_all_alerts(self, max_workers=5):
         print("Fetching page list from GitBook API...")
         all_pages = self.list_pages()
         alert_pages = self._collect_alert_pages(all_pages)
         print(f"Found {len(alert_pages)} alert pages")
 
         alerts = []
+        failed = []
         fetched = 0
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             futures = {executor.submit(self._fetch_page, page): page for page in alert_pages}
             for future in as_completed(futures):
-                result = future.result()
-                if result:
-                    alerts.append(result)
+                page = futures[future]
+                try:
+                    result = future.result()
+                except requests.exceptions.HTTPError as e:
+                    print(f"  Failed to fetch '{page.get('title', '?')}': {e}")
+                    failed.append(page)
+                else:
+                    if result:
+                        alerts.append(result)
                 fetched += 1
                 if fetched % 100 == 0:
                     print(f"  Fetched {fetched}/{len(alert_pages)} pages...")
 
-        print(f"Fetched all {len(alerts)} alert pages")
+        if failed:
+            print(f"Warning: {len(failed)} pages failed to fetch")
+        print(f"Fetched {len(alerts)} alert pages")
         return alerts
 
 
