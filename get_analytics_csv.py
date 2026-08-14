@@ -21,16 +21,17 @@ class GitBookClient:
         })
 
     def _request(self, method, url, **kwargs):
-        for attempt in range(5):
+        attempt = 0
+        while True:
             resp = self.session.request(method, url, **kwargs)
             if resp.status_code == 429:
-                delay = float(resp.headers.get('Retry-After', 2 ** attempt))
+                delay = float(resp.headers.get('Retry-After', 2 ** min(attempt, 6)))
                 print(f"  Rate limited, waiting {delay:.0f}s...")
                 time.sleep(delay)
+                attempt += 1
                 continue
             resp.raise_for_status()
             return resp
-        resp.raise_for_status()
 
     def list_pages(self):
         url = f"{GITBOOK_API_BASE}/spaces/{self.space_id}/content/pages"
@@ -71,11 +72,7 @@ class GitBookClient:
 
         alerts = []
         for i, page in enumerate(alert_pages, 1):
-            try:
-                result = self._fetch_page(page)
-            except requests.exceptions.HTTPError as e:
-                print(f"  Failed to fetch '{page.get('title', '?')}': {e}")
-                continue
+            result = self._fetch_page(page)
             if result:
                 alerts.append(result)
             if i % 100 == 0:
