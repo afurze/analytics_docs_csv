@@ -30,7 +30,7 @@ class GitBookClient:
         alert_pages = []
         for page in pages:
             path = page.get('path', '')
-            if path.startswith('alerts/') and path != 'alerts':
+            if path.startswith('alerts-by-name/') and path != 'alerts-by-name':
                 alert_pages.append(page)
             children = page.get('pages', [])
             if children:
