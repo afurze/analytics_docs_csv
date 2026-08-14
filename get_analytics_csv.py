@@ -1,7 +1,5 @@
 import re
-import threading
 import time
-from concurrent.futures import ThreadPoolExecutor, as_completed
 import pandas as pd
 import requests
 import sys
@@ -16,25 +14,18 @@ class GitBookClient:
 
     def __init__(self, space_id, api_token):
         self.space_id = space_id
-        self._rate_lock = threading.Lock()
-        self._backoff_until = 0
         self.session = requests.Session()
         self.session.headers.update({
             'Authorization': f'Bearer {api_token}',
             'Accept': 'application/json',
         })
 
-    def _request(self, method, url, retries=5, **kwargs):
-        for attempt in range(retries):
-            wait_until = self._backoff_until
-            now = time.monotonic()
-            if now < wait_until:
-                time.sleep(wait_until - now)
+    def _request(self, method, url, **kwargs):
+        for attempt in range(5):
             resp = self.session.request(method, url, **kwargs)
             if resp.status_code == 429:
                 delay = float(resp.headers.get('Retry-After', 2 ** attempt))
-                with self._rate_lock:
-                    self._backoff_until = max(self._backoff_until, time.monotonic() + delay)
+                print(f"  Rate limited, waiting {delay:.0f}s...")
                 time.sleep(delay)
                 continue
             resp.raise_for_status()
@@ -72,33 +63,25 @@ class GitBookClient:
         markdown = self.get_page_content(page_id)
         return {'name': title, 'markdown': markdown}
 
-    def fetch_all_alerts(self, max_workers=5):
+    def fetch_all_alerts(self):
         print("Fetching page list from GitBook API...")
         all_pages = self.list_pages()
         alert_pages = self._collect_alert_pages(all_pages)
         print(f"Found {len(alert_pages)} alert pages")
 
         alerts = []
-        failed = []
-        fetched = 0
-        with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            futures = {executor.submit(self._fetch_page, page): page for page in alert_pages}
-            for future in as_completed(futures):
-                page = futures[future]
-                try:
-                    result = future.result()
-                except requests.exceptions.HTTPError as e:
-                    print(f"  Failed to fetch '{page.get('title', '?')}': {e}")
-                    failed.append(page)
-                else:
-                    if result:
-                        alerts.append(result)
-                fetched += 1
-                if fetched % 100 == 0:
-                    print(f"  Fetched {fetched}/{len(alert_pages)} pages...")
+        for i, page in enumerate(alert_pages, 1):
+            try:
+                result = self._fetch_page(page)
+            except requests.exceptions.HTTPError as e:
+                print(f"  Failed to fetch '{page.get('title', '?')}': {e}")
+                continue
+            if result:
+                alerts.append(result)
+            if i % 100 == 0:
+                print(f"  Fetched {i}/{len(alert_pages)} pages...")
+            time.sleep(0.2)
 
-        if failed:
-            print(f"Warning: {len(failed)} pages failed to fetch")
         print(f"Fetched {len(alerts)} alert pages")
         return alerts
 
