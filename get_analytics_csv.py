@@ -1,4 +1,5 @@
 import re
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import pandas as pd
 import requests
 import sys
@@ -44,22 +45,31 @@ class GitBookClient:
         data = resp.json()
         return data.get('markdown', '') or data.get('document', {}).get('markdown', '')
 
-    def fetch_all_alerts(self):
+    def _fetch_page(self, page):
+        title = page.get('title', '')
+        page_id = page.get('id', '')
+        if not page_id:
+            return None
+        markdown = self.get_page_content(page_id)
+        return {'name': title, 'markdown': markdown}
+
+    def fetch_all_alerts(self, max_workers=20):
         print("Fetching page list from GitBook API...")
         all_pages = self.list_pages()
         alert_pages = self._collect_alert_pages(all_pages)
         print(f"Found {len(alert_pages)} alert pages")
 
         alerts = []
-        for i, page in enumerate(alert_pages):
-            title = page.get('title', '')
-            page_id = page.get('id', '')
-            if not page_id:
-                continue
-            markdown = self.get_page_content(page_id)
-            alerts.append({'name': title, 'markdown': markdown})
-            if (i + 1) % 100 == 0:
-                print(f"  Fetched {i + 1}/{len(alert_pages)} pages...")
+        fetched = 0
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = {executor.submit(self._fetch_page, page): page for page in alert_pages}
+            for future in as_completed(futures):
+                result = future.result()
+                if result:
+                    alerts.append(result)
+                fetched += 1
+                if fetched % 100 == 0:
+                    print(f"  Fetched {fetched}/{len(alert_pages)} pages...")
 
         print(f"Fetched all {len(alerts)} alert pages")
         return alerts
