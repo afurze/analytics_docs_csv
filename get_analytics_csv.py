@@ -1,4 +1,5 @@
 import re
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import pandas as pd
 import requests
@@ -20,11 +21,17 @@ class GitBookClient:
             'Accept': 'application/json',
         })
 
-    def list_pages(self):
+    def list_pages(self, retries=3):
         url = f"{GITBOOK_API_BASE}/spaces/{self.space_id}/content/pages"
-        resp = self.session.get(url)
+        for attempt in range(retries):
+            resp = self.session.get(url)
+            if resp.status_code == 429:
+                wait = float(resp.headers.get('Retry-After', 2 ** attempt))
+                time.sleep(wait)
+                continue
+            resp.raise_for_status()
+            return resp.json().get('pages', [])
         resp.raise_for_status()
-        return resp.json().get('pages', [])
 
     def _collect_alert_pages(self, pages):
         """Recursively walk the page tree and collect individual alert pages."""
@@ -38,12 +45,18 @@ class GitBookClient:
                 alert_pages.extend(self._collect_alert_pages(children))
         return alert_pages
 
-    def get_page_content(self, page_id):
+    def get_page_content(self, page_id, retries=3):
         url = f"{GITBOOK_API_BASE}/spaces/{self.space_id}/content/page/{page_id}"
-        resp = self.session.get(url, params={'format': 'markdown'})
+        for attempt in range(retries):
+            resp = self.session.get(url, params={'format': 'markdown'})
+            if resp.status_code == 429:
+                wait = float(resp.headers.get('Retry-After', 2 ** attempt))
+                time.sleep(wait)
+                continue
+            resp.raise_for_status()
+            data = resp.json()
+            return data.get('markdown', '') or data.get('document', {}).get('markdown', '')
         resp.raise_for_status()
-        data = resp.json()
-        return data.get('markdown', '') or data.get('document', {}).get('markdown', '')
 
     def _fetch_page(self, page):
         title = page.get('title', '')
@@ -53,7 +66,7 @@ class GitBookClient:
         markdown = self.get_page_content(page_id)
         return {'name': title, 'markdown': markdown}
 
-    def fetch_all_alerts(self, max_workers=20):
+    def fetch_all_alerts(self, max_workers=10):
         print("Fetching page list from GitBook API...")
         all_pages = self.list_pages()
         alert_pages = self._collect_alert_pages(all_pages)
@@ -108,7 +121,7 @@ def _clean_required_data(value):
 
 def parse_alert_markdown(name, markdown_text):
     """Parse a single alert's markdown into a list of detector dicts (parent + variations)."""
-    sections = re.split(r'^## ', markdown_text, flags=re.MULTILINE)
+    sections = re.split(r'^#{2,3} ', markdown_text, flags=re.MULTILINE)
 
     synopsis_data = {}
     for section in sections:
@@ -152,6 +165,9 @@ def build_dataframe(alerts):
         all_detectors.extend(detectors)
 
     df = pd.DataFrame(all_detectors)
+
+    if 'Required Data' not in df.columns:
+        df['Required Data'] = pd.NA
 
     all_sources = df['Required Data'].dropna().str.split(',').explode().str.strip().unique()
     all_sources = sorted(all_sources)
