@@ -21,14 +21,12 @@ class GitBookClient:
         })
 
     def _request(self, method, url, **kwargs):
-        attempt = 0
         while True:
             resp = self.session.request(method, url, **kwargs)
             if resp.status_code == 429:
-                delay = float(resp.headers.get('Retry-After', 2 ** min(attempt, 6)))
+                delay = float(resp.headers.get('Retry-After', 5))
                 print(f"  Rate limited, waiting {delay:.0f}s...")
                 time.sleep(delay)
-                attempt += 1
                 continue
             resp.raise_for_status()
             return resp
@@ -77,7 +75,7 @@ class GitBookClient:
                 alerts.append(result)
             if i % 100 == 0:
                 print(f"  Fetched {i}/{len(alert_pages)} pages...")
-            time.sleep(0.2)
+            time.sleep(0.5)
 
         print(f"Fetched {len(alerts)} alert pages")
         return alerts
@@ -104,11 +102,18 @@ def _parse_markdown_table(table_text):
 
 
 def _clean_required_data(value):
-    """Apply the same Required Data cleaning as the original scraper."""
+    """Clean Required Data values, handling HTML markup and OR separators."""
     if not value:
         return value
-    cleaned_parts = [part.strip().removesuffix('OR') for part in value.split(',')]
-    value = ', '.join(p.strip() for p in cleaned_parts if p.strip())
+    value = re.sub(r'<[^>]+>', ' ', value)
+    value = re.sub(r'Requires one of the following data sources:\s*', '', value)
+    value = re.sub(r'\s+OR\s+', ', ', value)
+    parts = []
+    for p in value.split(','):
+        p = p.strip().removesuffix('OR').strip()
+        if p:
+            parts.append(p)
+    value = ', '.join(parts)
     if 'XDR Agent' in value and 'eXtended Threat Hunting (XTH)' not in value:
         value += ', XDR Agent with eXtended Threat Hunting (XTH)'
     return value
