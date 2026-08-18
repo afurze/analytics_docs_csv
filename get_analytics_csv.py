@@ -21,12 +21,27 @@ class GitBookClient:
         })
 
     def _request(self, method, url, **kwargs):
+        kwargs.setdefault('timeout', 30)
+        retries = 0
         while True:
-            resp = self.session.request(method, url, **kwargs)
+            try:
+                resp = self.session.request(method, url, **kwargs)
+            except requests.exceptions.RequestException as e:
+                if retries < 3:
+                    retries += 1
+                    print(f"  Connection error, retry {retries}/3: {e}")
+                    time.sleep(2 ** retries)
+                    continue
+                raise
             if resp.status_code == 429:
                 delay = float(resp.headers.get('Retry-After', 5))
                 print(f"  Rate limited, waiting {delay:.0f}s...")
                 time.sleep(delay)
+                continue
+            if resp.status_code >= 500 and retries < 3:
+                retries += 1
+                print(f"  Server error {resp.status_code}, retry {retries}/3...")
+                time.sleep(2 ** retries)
                 continue
             resp.raise_for_status()
             return resp
@@ -105,8 +120,9 @@ def _clean_required_data(value):
     """Clean Required Data values, handling HTML markup and OR separators."""
     if not value:
         return value
+    value = re.sub(r'<br\s*/?>', ', ', value, flags=re.IGNORECASE)
     value = re.sub(r'<[^>]+>', ' ', value)
-    value = re.sub(r'Requires one of the following data sources:\s*', '', value)
+    value = re.sub(r'Requires (one|all) of the following( data sources)?:\s*', '', value)
     value = re.sub(r'\s+OR\s+', ', ', value)
     parts = []
     for p in value.split(','):
